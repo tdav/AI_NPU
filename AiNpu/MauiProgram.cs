@@ -21,8 +21,7 @@ public static class MauiProgram
                 fonts.AddFont("Manrope-ExtraBold.ttf", "ManropeExtraBold");
             });
 
-        // Модель и движок NPU — по одному на процесс; страница чата держит ленту диалога всё время работы.
-        builder.Services.AddSingleton<ModelManager>(_ => new ModelManager());
+        // Движок NPU — один на процесс (модель выбирается в ModelCatalog); страница чата держит ленту диалога всё время работы.
         builder.Services.AddSingleton<ChatService>();
         builder.Services.AddSingleton<ChatPage>();
         builder.Services.AddTransient<SettingsPage>();

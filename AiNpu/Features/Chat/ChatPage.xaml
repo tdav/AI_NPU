@@ -6,6 +6,7 @@
     xmlns:chat="clr-namespace:AiNpu.Features.Chat"
     x:DataType="chat:ChatPage"
     NavigationPage.HasNavigationBar="False"
+    SafeAreaEdges="Container,SoftInput"
     AutomationId="ChatPage">
 
     <Grid RowDefinitions="Auto,*,Auto">
@@ -19,7 +20,8 @@
             ColumnSpacing="4">
             <VerticalStackLayout Spacing="2" VerticalOptions="Center">
                 <Label
-                    Text="LFM2 · NPU"
+                    x:Name="TitleLabel"
+                    Text="NPU"
                     FontFamily="ManropeExtraBold"
                     FontSize="20"
                     TextColor="{DynamicResource TnTextOnMetal}" />
@@ -100,7 +102,7 @@
                 <VerticalStackLayout Padding="28,48" Spacing="8">
                     <Label Text="Модель работает прямо на телефоне" Style="{StaticResource TnValue}" HorizontalTextAlignment="Center" />
                     <Label
-                        Text="LFM2-2.6B на нейропроцессоре Snapdragon. Без интернета: запрос не покидает устройство."
+                        Text="Языковая модель на нейропроцессоре Snapdragon. Без интернета: запрос не покидает устройство."
                         Style="{StaticResource TnMeta}"
                         HorizontalTextAlignment="Center" />
                 </VerticalStackLayout>

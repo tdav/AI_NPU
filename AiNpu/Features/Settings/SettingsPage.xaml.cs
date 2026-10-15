@@ -2,18 +2,18 @@ using AiNpu.Services;
 
 namespace AiNpu.Features.Settings;
 
-// Параметры генерации и системный промпт (Preferences, сохраняются при уходе со страницы), удаление модели.
+// Выбор модели (ModelCatalog), параметры генерации и системный промпт (Preferences, сохраняются при уходе
+// со страницы), удаление файлов выбранной модели.
 public partial class SettingsPage : ContentPage
 {
-    private readonly ModelManager modelManager;
     private readonly ChatService chatService;
 
-    public SettingsPage(ModelManager modelManager, ChatService chatService)
+    public SettingsPage(ChatService chatService)
     {
-        this.modelManager = modelManager;
         this.chatService = chatService;
         this.InitializeComponent();
         this.BindingContext = this;
+        this.ModelPicker.ItemsSource = ModelCatalog.Models.Select(m => m.Title).ToList();
     }
 
     protected override void OnAppearing()
@@ -26,10 +26,26 @@ public partial class SettingsPage : ContentPage
         this.MaxTokensSlider.Value = s.MaxNewTokens;
         this.SystemPromptEditor.Text = s.SystemPrompt;
         this.OnSliderChanged(null, null);
-        this.ModelInfo.Text = $"LFM2-2.6B q4 для NPU {NpuPlatform.RequiredSoc} (QNN 2.40), {ModelManager.TotalBytes / (double)(1L << 30):0.00} ГБ. "
-            + (this.modelManager.IsReady() ? "Скачана." : "Не скачана.")
-            + $" Устройство: {NpuPlatform.SocModel}.";
-        this.DeleteModelButton.IsEnabled = this.modelManager.IsReady() || this.modelManager.DownloadedBytes() > 0;
+        this.ModelPicker.SelectedIndex = Array.IndexOf(ModelCatalog.Models, ModelCatalog.Selected);
+        this.ShowModelInfo();
+    }
+
+    private void ShowModelInfo()
+    {
+        var manager = new ModelManager(ModelCatalog.Selected);
+        this.ModelInfo.Text = $"{ModelCatalog.Selected.Description}. "
+            + (manager.IsReady() ? $"Скачана ({manager.TotalBytes / (double)(1L << 30):0.00} ГБ)." : "Не скачана.")
+            + $" NPU {NpuPlatform.RequiredSoc}, устройство: {NpuPlatform.SocModel}.";
+        this.DeleteModelButton.IsEnabled = manager.IsReady() || manager.DownloadedBytes() > 0 || File.Exists(manager.MetadataPath);
+    }
+
+    private void OnModelChanged(object? sender, EventArgs e)
+    {
+        if (this.ModelPicker.SelectedIndex >= 0)
+        {
+            ModelCatalog.Selected = ModelCatalog.Models[this.ModelPicker.SelectedIndex];
+            this.ShowModelInfo();
+        }
     }
 
     protected override void OnDisappearing()
@@ -63,11 +79,15 @@ public partial class SettingsPage : ContentPage
 
     private async void OnDeleteModelClicked(object? sender, EventArgs e)
     {
-        if (await this.DisplayAlertAsync("Удалить модель?", "Файлы (≈1,8 ГБ) будут удалены; для чата их придётся скачать заново.", "Удалить", "Отмена"))
+        if (await this.DisplayAlertAsync("Удалить модель?", $"Файлы {ModelCatalog.Selected.Title} будут удалены; для чата их придётся скачать заново.", "Удалить", "Отмена"))
         {
             // Сначала выгрузка из NPU: эмбеддинги отображены в память из файла модели.
-            await this.chatService.UnloadAsync();
-            this.modelManager.Delete();
+            if (this.chatService.LoadedModelId == ModelCatalog.Selected.Id)
+            {
+                await this.chatService.UnloadAsync();
+            }
+
+            new ModelManager(ModelCatalog.Selected).Delete();
             this.OnAppearing();
         }
     }

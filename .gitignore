@@ -10,3 +10,8 @@ native/lfm2-npu/build/
 *.suo
 *.user
 *.userosscache
+
+# Сборки инструментов
+artifacts/
+native/qnn-llm/build/
+__pycache__/

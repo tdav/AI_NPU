@@ -1,5 +1,4 @@
 ﻿using AiNpu.Features.Chat;
-using Microsoft.Maui.Controls.PlatformConfiguration.AndroidSpecific;
 
 namespace AiNpu;
 
@@ -11,8 +10,10 @@ public partial class App : Microsoft.Maui.Controls.Application
     {
         this.services = services;
         this.InitializeComponent();
-        // Клавиатура поджимает окно: поле ввода чата остаётся видимым над ней.
-        this.On<Microsoft.Maui.Controls.PlatformConfiguration.Android>().UseWindowSoftInputModeAdjust(WindowSoftInputModeAdjust.Resize);
+        // Окно не сдвигается под клавиатуру (adjustPan по умолчанию уводит шапку за экран): поле ввода
+        // поднимает SafeAreaEdges="SoftInput" страницы чата.
+        Microsoft.Maui.Controls.PlatformConfiguration.AndroidSpecific.Application.SetWindowSoftInputModeAdjust(
+            this, Microsoft.Maui.Controls.PlatformConfiguration.AndroidSpecific.WindowSoftInputModeAdjust.Resize);
     }
 
     protected override Window CreateWindow(IActivationState? activationState)

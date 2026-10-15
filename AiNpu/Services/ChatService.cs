@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 
 namespace AiNpu.Services;
 
@@ -8,42 +9,51 @@ public sealed record GenerationStats(int PromptTokens, double PrefillSeconds, in
     public double DecodeTokensPerSecond => this.DecodeSeconds > 0 ? this.GeneratedTokens / this.DecodeSeconds : 0;
 }
 
-// Диалог с LFM2 на NPU. KV-кэш живёт между репликами: новая реплика дописывается к контексту (NextTurn),
+// Диалог с моделью на NPU (любая модель qnn-llm-convert: токенизатор, шаблон чата и EOS — из metadata.json). KV-кэш живёт между репликами: новая реплика дописывается к контексту (NextTurn),
 // без повторного prefill всей истории. Контекст пересобирается заново (Conversation), если сменили системный
-// промпт, после ошибки NPU или когда новая реплика с запасом под ответ не помещается в 4096 токенов —
+// промпт, после ошибки NPU или когда новая реплика с запасом под ответ не помещается в контекст —
 // тогда отбрасываются самые старые пары реплик. Одновременно идёт не больше одной генерации.
 public sealed class ChatService : IDisposable
 {
-    private readonly ModelManager modelManager;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly List<(string User, string Assistant)> turns = [];
-    private Lfm2Engine? engine;
-    private Lfm2Tokenizer? tokenizer;
+    private QnnLlmEngine? engine;
+    private HfTokenizer? tokenizer;
+    private ChatTemplate? template;
+    private HashSet<int> eos = [];
     private string? contextSystemPrompt;
     private bool contextValid;
 
-    public ChatService(ModelManager modelManager)
-    {
-        this.modelManager = modelManager;
-    }
-
     public bool IsLoaded => this.engine is not null;
+
+    public string? LoadedModelId { get; private set; }
 
     public int ContextTokens => this.engine?.NPast ?? 0;
 
-    // ≈1 с: токенизатор (3 МБ JSON) и три context binary в NPU. Исключение — NPU недоступен.
-    public Task LoadAsync(string nativeLibraryDirectory) => Task.Run(async () =>
+    public int ContextLength => this.engine?.ContextLength ?? 0;
+
+    // Секунды: токенизатор (JSON до 20 МБ) и context binary частей в NPU. Другая загруженная модель выгружается.
+    // Исключение — NPU недоступен или пакет модели повреждён.
+    public Task LoadAsync(string nativeLibraryDirectory, ModelManager model) => Task.Run(async () =>
     {
         await this.gate.WaitAsync();
         try
         {
-            if (this.engine is not null)
+            if (this.engine is not null && this.LoadedModelId == model.Model.Id)
             {
                 return;
             }
 
-            this.tokenizer ??= new Lfm2Tokenizer(this.modelManager.TokenizerPath);
-            this.engine = Lfm2Engine.Load(nativeLibraryDirectory, this.modelManager.Directory);
+            this.engine?.Dispose();
+            this.engine = null;
+            this.turns.Clear();
+            this.contextValid = false;
+            using var meta = JsonDocument.Parse(File.ReadAllText(model.MetadataPath));
+            this.template = ChatTemplate.FromMetadata(meta.RootElement.GetProperty("chat"));
+            this.eos = [.. meta.RootElement.GetProperty("eos").EnumerateArray().Select(e => e.GetInt32())];
+            this.tokenizer = new HfTokenizer(Path.Combine(model.Directory, "tokenizer.json"));
+            this.engine = QnnLlmEngine.Load(nativeLibraryDirectory, model.Directory);
+            this.LoadedModelId = model.Model.Id;
         }
         finally
         {
@@ -59,6 +69,7 @@ public sealed class ChatService : IDisposable
         {
             this.engine?.Dispose();
             this.engine = null;
+            this.LoadedModelId = null;
             this.turns.Clear();
             this.contextValid = false;
         }
@@ -90,13 +101,14 @@ public sealed class ChatService : IDisposable
         await this.gate.WaitAsync(CancellationToken.None);
         try
         {
-            Lfm2Engine engine = this.engine ?? throw new InvalidOperationException("модель не загружена");
-            Lfm2Tokenizer tokenizer = this.tokenizer!;
+            QnnLlmEngine engine = this.engine ?? throw new InvalidOperationException("модель не загружена");
+            HfTokenizer tokenizer = this.tokenizer!;
+            ChatTemplate template = this.template!;
 
             // Запас под ответ: не больше половины контекста, чтобы длинный MaxNewTokens не съедал историю.
-            int budget = Lfm2Engine.ContextLength - Math.Min(settings.MaxNewTokens, Lfm2Engine.ContextLength / 2);
+            int budget = engine.ContextLength - Math.Min(settings.MaxNewTokens, engine.ContextLength / 2);
             bool rebuild = !this.contextValid || this.contextSystemPrompt != settings.SystemPrompt || this.turns.Count == 0;
-            List<int> prompt = rebuild ? [] : ChatPrompt.NextTurn(tokenizer, userText);
+            List<int> prompt = rebuild ? [] : template.NextTurn(tokenizer, userText);
             if (!rebuild && engine.NPast + prompt.Count > budget)
             {
                 rebuild = true;
@@ -105,11 +117,11 @@ public sealed class ChatService : IDisposable
             bool rebuiltHistory = false;
             if (rebuild)
             {
-                prompt = ChatPrompt.Conversation(tokenizer, settings.SystemPrompt, this.turns, userText);
+                prompt = template.Conversation(tokenizer, settings.SystemPrompt, this.turns, userText);
                 while (prompt.Count > budget && this.turns.Count > 0)
                 {
                     this.turns.RemoveAt(0);
-                    prompt = ChatPrompt.Conversation(tokenizer, settings.SystemPrompt, this.turns, userText);
+                    prompt = template.Conversation(tokenizer, settings.SystemPrompt, this.turns, userText);
                 }
 
                 if (prompt.Count > budget)
@@ -136,10 +148,10 @@ public sealed class ChatService : IDisposable
             watch.Restart();
             try
             {
-                while (generated < settings.MaxNewTokens && !cancellationToken.IsCancellationRequested && engine.NPast < Lfm2Engine.ContextLength)
+                while (generated < settings.MaxNewTokens && !cancellationToken.IsCancellationRequested && engine.NPast < engine.ContextLength)
                 {
                     int token = engine.Sample(settings);
-                    if (token < 0 || tokenizer.IsSpecial(token))
+                    if (token < 0 || this.eos.Contains(token) || tokenizer.IsSpecial(token))
                     {
                         break;
                     }

@@ -4,20 +4,18 @@ using AiNpu.Services;
 
 namespace AiNpu.Features.Chat;
 
-// Чат с LFM2 на NPU. До чата — подготовка: проверка SoC (SM8650), скачивание модели (≈1,8 ГБ, с докачкой),
+// Чат с выбранной моделью (ModelCatalog) на NPU. До чата — подготовка: проверка SoC (SM8650), скачивание модели (с докачкой),
 // загрузка в NPU (≈1 с). Ответ приходит потоком; «Стоп» обрывает генерацию на текущем токене.
 public partial class ChatPage : ContentPage
 {
-    private readonly ModelManager modelManager;
     private readonly ChatService chatService;
     private readonly IServiceProvider services;
     private CancellationTokenSource? operation;
     private bool generating;
     private bool downloading;
 
-    public ChatPage(ModelManager modelManager, ChatService chatService, IServiceProvider services)
+    public ChatPage(ChatService chatService, IServiceProvider services)
     {
-        this.modelManager = modelManager;
         this.chatService = chatService;
         this.services = services;
         this.InitializeComponent();
@@ -26,12 +24,21 @@ public partial class ChatPage : ContentPage
 
     public ObservableCollection<ChatMessage> Messages { get; } = [];
 
+    private static ModelManager SelectedModel => new(ModelCatalog.Selected);
+
     protected override async void OnAppearing()
     {
         base.OnAppearing();
         if (this.downloading || this.generating)
         {
             return;
+        }
+
+        ModelInfo model = ModelCatalog.Selected;
+        this.TitleLabel.Text = model.Title + " · NPU";
+        if (this.chatService.LoadedModelId is not null && this.chatService.LoadedModelId != model.Id)
+        {
+            this.Messages.Clear();  // выбрана другая модель — прежний диалог к ней не относится
         }
 
         if (!NpuPlatform.IsSupported)
@@ -44,18 +51,21 @@ public partial class ChatPage : ContentPage
             return;
         }
 
-        if (!this.modelManager.IsReady())
+        ModelManager manager = SelectedModel;
+        if (!manager.IsReady())
         {
-            long have = this.modelManager.DownloadedBytes();
+            long have = manager.DownloadedBytes();
+            long total = manager.TotalBytes;
+            string size = total > 0 ? FormatGb(total) : model.Description;
             this.ShowSetup(
-                "Скачать модель",
-                $"LFM2-2.6B (4 бита) для NPU: {FormatGb(ModelManager.TotalBytes)} из HuggingFace. Скачивается один раз, дальше всё работает без интернета. Нужен Wi-Fi и {FormatGb(ModelManager.TotalBytes + (1L << 30))} свободного места.",
-                have > 0 ? $"Продолжить ({FormatGb(have)} из {FormatGb(ModelManager.TotalBytes)})" : "Скачать");
+                "Скачать " + model.Title,
+                $"{model.Title} (4 бита) для NPU, {size}, из HuggingFace. Скачивается один раз, дальше всё работает без интернета. Нужен Wi-Fi и запас свободного места. Другую модель можно выбрать в «Настройках».",
+                have > 0 && total > 0 ? $"Продолжить ({FormatGb(have)} из {FormatGb(total)})" : "Скачать");
             this.StatusLabel.Text = "модель не скачана";
             return;
         }
 
-        if (!this.chatService.IsLoaded)
+        if (this.chatService.LoadedModelId != model.Id)
         {
             await this.LoadModelAsync();
             return;
@@ -71,7 +81,7 @@ public partial class ChatPage : ContentPage
         this.StatusLabel.Text = "загрузка…";
         try
         {
-            await this.chatService.LoadAsync(NpuPlatform.NativeLibraryDirectory);
+            await this.chatService.LoadAsync(NpuPlatform.NativeLibraryDirectory, SelectedModel);
             this.ShowChat();
         }
         catch (Exception ex)
@@ -93,7 +103,8 @@ public partial class ChatPage : ContentPage
             return;
         }
 
-        if (this.modelManager.IsReady())
+        ModelManager manager = SelectedModel;
+        if (manager.IsReady())
         {
             await this.LoadModelAsync();
             return;
@@ -107,7 +118,7 @@ public partial class ChatPage : ContentPage
         this.SetupText.Text = "Скачивание… Не закрывайте приложение; при обрыве загрузка продолжится с того же места.";
         DeviceDisplay.Current.KeepScreenOn = true;
         var started = DateTime.UtcNow;
-        long startBytes = this.modelManager.DownloadedBytes();
+        long startBytes = manager.DownloadedBytes();
         var progress = new Progress<(long Done, long Total)>(p =>
         {
             this.DownloadProgress.Progress = (double)p.Done / p.Total;
@@ -117,7 +128,7 @@ public partial class ChatPage : ContentPage
         });
         try
         {
-            await this.modelManager.DownloadAsync(progress, this.operation.Token);
+            await manager.DownloadAsync(progress, this.operation.Token);
             this.downloading = false;
             await this.LoadModelAsync();
         }
@@ -178,7 +189,7 @@ public partial class ChatPage : ContentPage
 
             answer.Meta = $"{stats.GeneratedTokens} ток · {stats.DecodeTokensPerSecond:0.0} ток/с · промпт {stats.PromptTokens} ток за {stats.PrefillSeconds:0.00} с"
                 + (stats.ContextRebuilt ? " · контекст пересобран" : string.Empty);
-            this.StatusLabel.Text = $"NPU · {stats.DecodeTokensPerSecond:0.0} ток/с · контекст {this.chatService.ContextTokens}/{Lfm2Engine.ContextLength}";
+            this.StatusLabel.Text = $"NPU · {stats.DecodeTokensPerSecond:0.0} ток/с · контекст {this.chatService.ContextTokens}/{this.chatService.ContextLength}";
         }
         catch (Exception ex)
         {

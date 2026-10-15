@@ -1,0 +1,15 @@
+[project]
+name = "qnnllm"
+version = "0.1.0"
+description = "Конвертер LLM onnx-community -> QNN HTP context binary (Snapdragon NPU)"
+requires-python = ">=3.10,<3.11"
+dynamic = ["dependencies"]
+
+[project.scripts]
+qnn-llm-convert = "qnnllm.cli:main"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["qnnllm*"]

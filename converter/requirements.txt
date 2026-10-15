@@ -1,0 +1,9 @@
+# qnn-llm-convert (Python 3.10). Проверено: qairt-converter 2.40 работает в чистом venv ровно с этим набором.
+numpy==1.26.4
+onnx==1.17.0
+onnxruntime==1.23.2
+packaging
+pyyaml
+huggingface_hub>=1.17.0
+tokenizers>=0.21
+jinja2>=3.1

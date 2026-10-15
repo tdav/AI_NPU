@@ -95,6 +95,13 @@
             <Border Style="{StaticResource TnCard}">
                 <VerticalStackLayout Spacing="10">
                     <Label Text="Модель" Style="{StaticResource TnEyebrow}" />
+                    <Picker
+                        x:Name="ModelPicker"
+                        AutomationId="ModelPicker"
+                        Title="Модель"
+                        FontFamily="ManropeBold"
+                        TextColor="{DynamicResource TnTextPrimary}"
+                        SelectedIndexChanged="OnModelChanged" />
                     <Label x:Name="ModelInfo" Style="{StaticResource TnBody}" />
                     <Button
                         x:Name="DeleteModelButton"

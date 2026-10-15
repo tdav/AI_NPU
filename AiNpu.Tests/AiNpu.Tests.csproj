@@ -19,8 +19,8 @@
 
   <ItemGroup>
     <!-- Ядро без MAUI подключается исходниками: проект приложения — только net11.0-android -->
-    <Compile Include="..\AiNpu\Services\Lfm2Tokenizer.cs" Link="Core\Lfm2Tokenizer.cs" />
-    <Compile Include="..\AiNpu\Services\ChatPrompt.cs" Link="Core\ChatPrompt.cs" />
+    <Compile Include="..\AiNpu\Services\HfTokenizer.cs" Link="Core\HfTokenizer.cs" />
+    <Compile Include="..\AiNpu\Services\ChatTemplate.cs" Link="Core\ChatTemplate.cs" />
   </ItemGroup>
 
   <ItemGroup>

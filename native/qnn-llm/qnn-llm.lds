@@ -1,6 +1,6 @@
 {
   global:
-    Lfm2Npu*;
+    QnnLlm*;
   local:
     *;
 };
