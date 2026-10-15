@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- Сеть: скачивание модели (~1,8 ГБ) из бакета HuggingFace при первом запуске -->
+	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+	<uses-permission android:name="android.permission.INTERNET" />
+	<!-- extractNativeLibs=true: libQnnHtpV75Skel.so должен лежать файлом в nativeLibraryDir — DSP грузит его
+	     оттуда по ADSP_LIBRARY_PATH; из несжатого APK (умолчание при minSdk ≥ 23) DSP его не видит. -->
+	<application android:allowBackup="false" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true" android:extractNativeLibs="true">
+		<!-- NPU: доступ к vendor-библиотеке FastRPC; без неё deviceCreate() в QNN падает с 14001 -->
+		<uses-native-library android:name="libcdsprpc.so" android:required="false" />
+	</application>
+</manifest>

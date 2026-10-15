@@ -1,0 +1,12 @@
+# Сборка
+[Bb]in/
+[Oo]bj/
+native/lfm2-npu/build/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache

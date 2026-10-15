@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AiNpu/AiNpu.csproj" />
+  <Project Path="AiNpu.Tests/AiNpu.Tests.csproj" />
+</Solution>

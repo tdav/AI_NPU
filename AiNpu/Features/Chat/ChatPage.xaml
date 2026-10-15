@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="AiNpu.Features.Chat.ChatPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:chat="clr-namespace:AiNpu.Features.Chat"
+    x:DataType="chat:ChatPage"
+    NavigationPage.HasNavigationBar="False"
+    AutomationId="ChatPage">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Шапка: тёмный металл, название модели и статус NPU -->
+        <Grid
+            Grid.Row="0"
+            Background="{DynamicResource TnMetalGradient}"
+            Padding="20,14,12,14"
+            ColumnDefinitions="*,Auto,Auto"
+            ColumnSpacing="4">
+            <VerticalStackLayout Spacing="2" VerticalOptions="Center">
+                <Label
+                    Text="LFM2 · NPU"
+                    FontFamily="ManropeExtraBold"
+                    FontSize="20"
+                    TextColor="{DynamicResource TnTextOnMetal}" />
+                <Label
+                    x:Name="StatusLabel"
+                    AutomationId="StatusLabel"
+                    FontSize="12"
+                    FontFamily="ManropeMedium"
+                    TextColor="{DynamicResource TnGoldBase}"
+                    LineBreakMode="TailTruncation" />
+            </VerticalStackLayout>
+            <Button
+                x:Name="NewChatButton"
+                Grid.Column="1"
+                AutomationId="NewChatButton"
+                Text="Новый"
+                Clicked="OnNewChatClicked"
+                FontFamily="ManropeBold"
+                FontSize="13"
+                HeightRequest="40"
+                Padding="14,0"
+                CornerRadius="14"
+                BackgroundColor="Transparent"
+                BorderColor="{DynamicResource TnMetal300}"
+                BorderWidth="1"
+                TextColor="{DynamicResource TnTextOnMetal}" />
+            <Button
+                Grid.Column="2"
+                AutomationId="SettingsButton"
+                Text="Настройки"
+                Clicked="OnSettingsClicked"
+                FontFamily="ManropeBold"
+                FontSize="13"
+                HeightRequest="40"
+                Padding="14,0"
+                CornerRadius="14"
+                BackgroundColor="Transparent"
+                BorderColor="{DynamicResource TnMetal300}"
+                BorderWidth="1"
+                TextColor="{DynamicResource TnTextOnMetal}" />
+        </Grid>
+
+        <!-- Подготовка: SoC не тот / модель не скачана / загрузка в NPU / ошибка -->
+        <ScrollView x:Name="SetupView" Grid.Row="1" IsVisible="False">
+            <Border Style="{StaticResource TnCard}" Margin="16,20" VerticalOptions="Start">
+                <VerticalStackLayout Spacing="12">
+                    <Label x:Name="SetupTitle" Style="{StaticResource TnTitleScreen}" FontSize="18" />
+                    <Label x:Name="SetupText" Style="{StaticResource TnBody}" />
+                    <ProgressBar
+                        x:Name="DownloadProgress"
+                        AutomationId="DownloadProgress"
+                        IsVisible="False"
+                        ProgressColor="{DynamicResource TnGoldBase}" />
+                    <Label x:Name="DownloadLabel" Style="{StaticResource TnMeta}" IsVisible="False" />
+                    <Button
+                        x:Name="SetupButton"
+                        AutomationId="SetupButton"
+                        Style="{StaticResource TnButtonPrimary}"
+                        Clicked="OnSetupClicked" />
+                    <ActivityIndicator
+                        x:Name="SetupSpinner"
+                        IsVisible="False"
+                        IsRunning="False"
+                        Color="{DynamicResource TnGoldBase}" />
+                </VerticalStackLayout>
+            </Border>
+        </ScrollView>
+
+        <!-- Лента диалога -->
+        <CollectionView
+            x:Name="MessagesView"
+            Grid.Row="1"
+            AutomationId="MessagesView"
+            ItemsSource="{Binding Messages}"
+            SelectionMode="None"
+            ItemsUpdatingScrollMode="KeepLastItemInView">
+            <CollectionView.EmptyView>
+                <VerticalStackLayout Padding="28,48" Spacing="8">
+                    <Label Text="Модель работает прямо на телефоне" Style="{StaticResource TnValue}" HorizontalTextAlignment="Center" />
+                    <Label
+                        Text="LFM2-2.6B на нейропроцессоре Snapdragon. Без интернета: запрос не покидает устройство."
+                        Style="{StaticResource TnMeta}"
+                        HorizontalTextAlignment="Center" />
+                </VerticalStackLayout>
+            </CollectionView.EmptyView>
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="chat:ChatMessage">
+                    <Grid Padding="12,6">
+                        <!-- Реплика пользователя: справа, тёмный металл -->
+                        <Border
+                            IsVisible="{Binding IsUser}"
+                            HorizontalOptions="End"
+                            MaximumWidthRequest="320"
+                            Margin="48,0,0,0"
+                            Padding="14,10"
+                            StrokeThickness="0"
+                            StrokeShape="RoundRectangle 18,18,18,4"
+                            Background="{DynamicResource TnMetalGradient}">
+                            <Label Text="{Binding Text}" TextColor="{DynamicResource TnTextOnMetal}" FontSize="15" />
+                        </Border>
+                        <!-- Ответ модели: слева, карточка -->
+                        <VerticalStackLayout IsVisible="{Binding IsAssistant}" HorizontalOptions="Start" Margin="0,0,32,0" Spacing="4">
+                            <Border
+                                Padding="14,10"
+                                StrokeThickness="1"
+                                Stroke="{DynamicResource TnBorderSubtle}"
+                                StrokeShape="RoundRectangle 18,18,4,18"
+                                Background="{DynamicResource TnSurface1}">
+                                <Label Text="{Binding Text}" FontSize="15" />
+                            </Border>
+                            <Label Text="{Binding Meta}" IsVisible="{Binding HasMeta}" Style="{StaticResource TnMeta}" FontSize="11" Margin="6,0" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <!-- Ввод -->
+        <Border
+            x:Name="InputBar"
+            Grid.Row="2"
+            Padding="12,8,8,8"
+            Margin="10,4,10,10"
+            StrokeThickness="1"
+            Stroke="{DynamicResource TnBorderHairline}"
+            StrokeShape="RoundRectangle 22,22,22,22"
+            Background="{DynamicResource TnSurface1}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Editor
+                    x:Name="InputEditor"
+                    AutomationId="InputEditor"
+                    Placeholder="Сообщение…"
+                    AutoSize="TextChanges"
+                    MaximumHeightRequest="140"
+                    FontSize="15"
+                    FontFamily="ManropeMedium"
+                    TextColor="{DynamicResource TnTextPrimary}"
+                    PlaceholderColor="{DynamicResource TnTextSecondary}"
+                    BackgroundColor="Transparent"
+                    TextChanged="OnInputTextChanged" />
+                <Button
+                    x:Name="SendButton"
+                    Grid.Column="1"
+                    AutomationId="SendButton"
+                    Text="Отправить"
+                    Style="{StaticResource TnButtonPrimary}"
+                    HeightRequest="44"
+                    CornerRadius="16"
+                    Padding="16,0"
+                    VerticalOptions="End"
+                    Clicked="OnSendClicked" />
+            </Grid>
+        </Border>
+    </Grid>
+</ContentPage>

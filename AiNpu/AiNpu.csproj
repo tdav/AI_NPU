@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<!-- Только Android: модель собрана под NPU Snapdragon 8 Gen 3 (SM8650, Hexagon v75).
+		     android37.0 — targetSdk 37 (.NET 11 под Android требует API 37). -->
+		<TargetFrameworks>net11.0-android37.0</TargetFrameworks>
+		<OutputType>Exe</OutputType>
+		<RootNamespace>AiNpu</RootNamespace>
+		<UseMaui>true</UseMaui>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<!-- Генерация XAML-кода на этапе компиляции (быстрее рантайм-инфляции). -->
+		<MauiXamlInflator>SourceGen</MauiXamlInflator>
+
+		<ApplicationTitle>AI NPU</ApplicationTitle>
+		<ApplicationId>com.tdavron.ainpu</ApplicationId>
+		<ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>1</ApplicationVersion>
+		<Version>$(ApplicationDisplayVersion)</Version>
+
+		<!-- minSdk 31: Build.SocModel (проверка SM8650) есть с Android 12 -->
+		<SupportedOSPlatformVersion>31.0</SupportedOSPlatformVersion>
+
+		<!-- NPU-библиотеки есть только под arm64 -->
+		<RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<!-- APK для установки вручную, а не AAB для Google Play -->
+		<AndroidPackageFormat>apk</AndroidPackageFormat>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#2E3136" />
+		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#F5F2EC" BaseSize="128,128" />
+		<MauiImage Include="Resources\Images\*" />
+		<MauiFont Include="Resources\Fonts\*" />
+		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- NPU: liblfm2-npu.so (native/lfm2-npu, движок LFM2 на QNN) и рантайм QNN 2.40 (см. qnn/VERSIONS.txt). -->
+		<AndroidNativeLibrary Include="Platforms\Android\qnn\arm64-v8a\*.so" Abi="arm64-v8a" />
+	</ItemGroup>
+
+</Project>

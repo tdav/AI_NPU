@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ядро без MAUI подключается исходниками: проект приложения — только net11.0-android -->
+    <Compile Include="..\AiNpu\Services\Lfm2Tokenizer.cs" Link="Core\Lfm2Tokenizer.cs" />
+    <Compile Include="..\AiNpu\Services\ChatPrompt.cs" Link="Core\ChatPrompt.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- tokenizer.json LFM2 (onnx-community/LFM2-2.6B-ONNX) и эталон HF tokenizers 0.23.2 -->
+    <None Include="TestData\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

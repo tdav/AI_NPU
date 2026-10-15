@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+
+    <!-- Trianon v1.2 «Шлифованный металл» (тема по умолчанию). Канон ключей: префикс Tn*, PascalCase. -->
+
+    <!-- Фон и поверхности -->
+    <Color x:Key="TnBgBase">#F5F2EC</Color>
+    <Color x:Key="TnBgSheet">#FFFFFF</Color>
+    <Color x:Key="TnSurface1">#FFFFFF</Color>
+    <Color x:Key="TnSurface2">#EDE9E1</Color>
+
+    <!-- Границы -->
+    <Color x:Key="TnBorderHairline">#B8B0A6</Color>
+    <Color x:Key="TnBorderSubtle">#E4DED3</Color>
+
+    <!-- Металл (тёмная колонна) -->
+    <Color x:Key="TnMetal900">#26292D</Color>
+    <Color x:Key="TnMetal700">#2E3136</Color>
+    <Color x:Key="TnMetal500">#3A3E44</Color>
+    <Color x:Key="TnMetal300">#6B7078</Color>
+
+    <!-- Золото (только мелкий акцент) -->
+    <Color x:Key="TnGoldBase">#D1B27C</Color>
+    <Color x:Key="TnGoldInk">#8A6A32</Color>
+    <Color x:Key="TnGoldSoft">#38D1B27C</Color>
+
+    <!-- Статусы: цвет = состояние, не декор -->
+    <Color x:Key="TnStatusFree">#0E8F5A</Color>
+    <Color x:Key="TnStatusBusy">#C46A00</Color>
+    <Color x:Key="TnStatusBusyFill">#FFA23A</Color>
+    <Color x:Key="TnStatusOff">#6B7078</Color>
+
+    <!-- Собеседники в расшифровке: различимы между собой и на TnBgBase (контраст текста ≥ 4.5:1),
+         не совпадают со статусными цветами. 7-й и далее — по кругу. -->
+    <Color x:Key="TnSpeaker1">#86662F</Color>
+    <Color x:Key="TnSpeaker2">#2F6B8A</Color>
+    <Color x:Key="TnSpeaker3">#3F7356</Color>
+    <Color x:Key="TnSpeaker4">#8A3F5A</Color>
+    <Color x:Key="TnSpeaker5">#5A4F8A</Color>
+    <Color x:Key="TnSpeaker6">#8F5428</Color>
+
+    <!-- Текст -->
+    <Color x:Key="TnTextPrimary">#2E3136</Color>
+    <Color x:Key="TnTextSecondary">#6B7078</Color>
+    <Color x:Key="TnTextOnMetal">#F5F2EC</Color>
+
+    <!-- Градиенты -->
+    <LinearGradientBrush x:Key="TnMetalGradient" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#3A3E44" Offset="0.0"/>
+        <GradientStop Color="#2E3136" Offset="0.55"/>
+        <GradientStop Color="#26292D" Offset="1.0"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="TnBoneGradient" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FFFFFF" Offset="0.0"/>
+        <GradientStop Color="#EDE9E1" Offset="1.0"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="TnGoldEdge" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#E3C88F" Offset="0.0"/>
+        <GradientStop Color="#B8975A" Offset="1.0"/>
+    </LinearGradientBrush>
+</ResourceDictionary>

@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="AiNpu.Features.Settings.SettingsPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:settings="clr-namespace:AiNpu.Features.Settings"
+    x:DataType="settings:SettingsPage"
+    Title="Настройки"
+    AutomationId="SettingsPage">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,16,16,32" Spacing="14">
+
+            <Border Style="{StaticResource TnCard}">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Генерация" Style="{StaticResource TnEyebrow}" />
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Температура" Style="{StaticResource TnValue}" />
+                        <Label x:Name="TemperatureValue" Grid.Column="1" Style="{StaticResource TnMeta}" />
+                    </Grid>
+                    <Slider
+                        x:Name="TemperatureSlider"
+                        AutomationId="TemperatureSlider"
+                        Minimum="0"
+                        Maximum="1.5"
+                        MinimumTrackColor="{DynamicResource TnGoldBase}"
+                        ThumbColor="{DynamicResource TnMetal700}"
+                        ValueChanged="OnSliderChanged" />
+                    <Label Text="0 — всегда самый вероятный токен (ответы повторяемы). Liquid AI советует 0,3." Style="{StaticResource TnMeta}" />
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Min-p" Style="{StaticResource TnValue}" />
+                        <Label x:Name="MinPValue" Grid.Column="1" Style="{StaticResource TnMeta}" />
+                    </Grid>
+                    <Slider
+                        x:Name="MinPSlider"
+                        AutomationId="MinPSlider"
+                        Minimum="0"
+                        Maximum="0.5"
+                        MinimumTrackColor="{DynamicResource TnGoldBase}"
+                        ThumbColor="{DynamicResource TnMetal700}"
+                        ValueChanged="OnSliderChanged" />
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Штраф за повторы" Style="{StaticResource TnValue}" />
+                        <Label x:Name="PenaltyValue" Grid.Column="1" Style="{StaticResource TnMeta}" />
+                    </Grid>
+                    <Slider
+                        x:Name="PenaltySlider"
+                        AutomationId="PenaltySlider"
+                        Minimum="1"
+                        Maximum="1.5"
+                        MinimumTrackColor="{DynamicResource TnGoldBase}"
+                        ThumbColor="{DynamicResource TnMetal700}"
+                        ValueChanged="OnSliderChanged" />
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Длина ответа, токенов" Style="{StaticResource TnValue}" />
+                        <Label x:Name="MaxTokensValue" Grid.Column="1" Style="{StaticResource TnMeta}" />
+                    </Grid>
+                    <Slider
+                        x:Name="MaxTokensSlider"
+                        AutomationId="MaxTokensSlider"
+                        Minimum="64"
+                        Maximum="2048"
+                        MinimumTrackColor="{DynamicResource TnGoldBase}"
+                        ThumbColor="{DynamicResource TnMetal700}"
+                        ValueChanged="OnSliderChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource TnCard}">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Системный промпт" Style="{StaticResource TnEyebrow}" />
+                    <Editor
+                        x:Name="SystemPromptEditor"
+                        AutomationId="SystemPromptEditor"
+                        AutoSize="TextChanges"
+                        MinimumHeightRequest="80"
+                        FontSize="14"
+                        FontFamily="ManropeMedium"
+                        TextColor="{DynamicResource TnTextPrimary}"
+                        BackgroundColor="{DynamicResource TnSurface2}" />
+                    <Label Text="Применяется к следующему сообщению: контекст диалога пересоберётся с новым промптом." Style="{StaticResource TnMeta}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Button
+                AutomationId="ResetButton"
+                Text="Вернуть по умолчанию"
+                Style="{StaticResource TnButtonSecondary}"
+                Clicked="OnResetClicked" />
+
+            <Border Style="{StaticResource TnCard}">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Модель" Style="{StaticResource TnEyebrow}" />
+                    <Label x:Name="ModelInfo" Style="{StaticResource TnBody}" />
+                    <Button
+                        x:Name="DeleteModelButton"
+                        AutomationId="DeleteModelButton"
+                        Text="Удалить модель с телефона"
+                        Style="{StaticResource TnButtonBusy}"
+                        Clicked="OnDeleteModelClicked" />
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -1,0 +1,8 @@
+# Нативные библиотеки NPU (QNN HTP, SM8650 / Hexagon v75) для AiNpu — LFM2-2.6B q4
+liblfm2-npu.so          native/lfm2-npu (build.sh): движок LFM2 + C-API Lfm2Npu*; NDK r29, android-26, libc++ статически
+libQnnHtp.so            QNN 2.40.0.251030 (build v2.40.0.251030114326_189385), те же файлы, что в MobileASR
+libQnnSystem.so         QNN 2.40.0.251030
+libQnnHtpV75Stub.so     QNN 2.40.0.251030
+libQnnHtpV75Skel.so     QNN 2.40.0.251030 (Hexagon DSP6 ELF, грузится в DSP)
+# Context binary модели (бакет tdavron/lfm2-2.6b-q4-qnn-sm8650-bucket) собраны тем же QAIRT 2.40.0.251030:
+# другая версия libQnnHtp.so не загрузит их.

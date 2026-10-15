@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+
+    <!-- Trianon v1.2 «Шлифованный металл»: стили по docs/design-system/DESIGN.md.
+         Все ссылки на цвета и кисти — только {DynamicResource Tn*} (см. Colors.xaml). -->
+
+    <!-- Кнопки: r18 / h54 / Manrope 700 14.5 / padding 24,0 (§2.3: button). Press — scale .98 (§2.6), Disabled — opacity .35. -->
+    <Style x:Key="TnButtonBase" TargetType="Button">
+        <Setter Property="FontFamily" Value="ManropeBold" />
+        <Setter Property="FontSize" Value="14.5" />
+        <Setter Property="CornerRadius" Value="18" />
+        <Setter Property="HeightRequest" Value="54" />
+        <Setter Property="Padding" Value="24,0" />
+        <Setter Property="VisualStateManager.VisualStateGroups">
+            <VisualStateGroupList>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="Pressed">
+                        <VisualState.Setters>
+                            <Setter Property="Scale" Value="0.98" />
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Property="Opacity" Value="0.35" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateGroupList>
+        </Setter>
+    </Style>
+
+    <Style x:Key="TnButtonPrimary" TargetType="Button" BasedOn="{StaticResource TnButtonBase}">
+        <Setter Property="Background" Value="{DynamicResource TnMetalGradient}" />
+        <Setter Property="TextColor" Value="{DynamicResource TnTextOnMetal}" />
+        <Setter Property="BorderWidth" Value="0" />
+    </Style>
+
+    <Style x:Key="TnButtonSecondary" TargetType="Button" BasedOn="{StaticResource TnButtonBase}">
+        <!-- Заливка — градиент «кость» по DESIGN.md (§3.17: secondary = gradients/bone) -->
+        <Setter Property="Background" Value="{DynamicResource TnBoneGradient}" />
+        <Setter Property="TextColor" Value="{DynamicResource TnTextPrimary}" />
+        <Setter Property="BorderWidth" Value="1" />
+        <Setter Property="BorderColor" Value="{DynamicResource TnBorderHairline}" />
+    </Style>
+
+    <Style x:Key="TnButtonAccent" TargetType="Button" BasedOn="{StaticResource TnButtonBase}">
+        <Setter Property="Background" Value="{DynamicResource TnBoneGradient}" />
+        <Setter Property="TextColor" Value="{DynamicResource TnGoldInk}" />
+        <Setter Property="BorderWidth" Value="1" />
+        <Setter Property="BorderColor" Value="{DynamicResource TnGoldBase}" />
+    </Style>
+
+    <!-- «Остановить зарядку»: спека accent·busy — текст и обводка цветом TnStatusBusyFill -->
+    <Style x:Key="TnButtonBusy" TargetType="Button" BasedOn="{StaticResource TnButtonAccent}">
+        <Setter Property="BorderColor" Value="{DynamicResource TnStatusBusyFill}" />
+        <Setter Property="TextColor" Value="{DynamicResource TnStatusBusyFill}" />
+    </Style>
+
+    <!-- Карточки: глубина через hairline, тени нет (DESIGN.md §2.4) -->
+    <Style x:Key="TnCard" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource TnSurface1}" />
+        <Setter Property="Stroke" Value="{DynamicResource TnBorderSubtle}" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 20,20,20,20" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="Padding" Value="16" />
+    </Style>
+
+    <!-- Колодцы и вторичные заливки (surface/2, radius md) -->
+    <Style x:Key="TnWell" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource TnSurface2}" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 14,14,14,14" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="Padding" Value="14" />
+    </Style>
+
+    <!-- Бейдж-пилюля: h36 + радиус 18 даёт капсулу; фон — золото-тинт -->
+    <Style x:Key="TnPill" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource TnGoldSoft}" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 18,18,18,18" />
+        <Setter Property="StrokeThickness" Value="0" />
+    </Style>
+
+    <!-- Типографика: веса Manrope задаются FontFamily по зарегистрированным именам (FontAttributes даёт только Bold/Italic) -->
+    <Style x:Key="TnTitleScreen" TargetType="Label">
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="FontFamily" Value="ManropeExtraBold" />
+        <Setter Property="TextColor" Value="{DynamicResource TnTextPrimary}" />
+    </Style>
+
+    <Style x:Key="TnHeroNumber" TargetType="Label">
+        <Setter Property="FontSize" Value="78" />
+        <Setter Property="FontFamily" Value="ManropeExtraBold" />
+        <Setter Property="TextColor" Value="{DynamicResource TnTextPrimary}" />
+        <Setter Property="CharacterSpacing" Value="-3.5" />
+    </Style>
+
+    <Style x:Key="TnEyebrow" TargetType="Label">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontFamily" Value="ManropeSemiBold" />
+        <Setter Property="CharacterSpacing" Value="1.5" />
+        <Setter Property="TextTransform" Value="Uppercase" />
+        <Setter Property="TextColor" Value="{DynamicResource TnTextSecondary}" />
+    </Style>
+
+    <Style x:Key="TnBody" TargetType="Label">
+        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontFamily" Value="ManropeMedium" />
+        <Setter Property="TextColor" Value="{DynamicResource TnTextPrimary}" />
+    </Style>
+
+    <Style x:Key="TnMeta" TargetType="Label">
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontFamily" Value="ManropeMedium" />
+        <Setter Property="TextColor" Value="{DynamicResource TnTextSecondary}" />
+    </Style>
+
+    <Style x:Key="TnValue" TargetType="Label">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontFamily" Value="ManropeBold" />
+        <Setter Property="TextColor" Value="{DynamicResource TnTextPrimary}" />
+    </Style>
+
+    <!-- Все Switch: положение видно в обоих состояниях — дорожка выкл металл, вкл золото, бегунок тёмный металл
+         (светлый сливается с белой карточкой). Disabled — opacity .35, как у кнопок: неактивный переключатель
+         не выглядит «выключенным». -->
+    <Style TargetType="Switch">
+        <Setter Property="OnColor" Value="{DynamicResource TnGoldBase}" />
+        <Setter Property="OffColor" Value="{DynamicResource TnMetal300}" />
+        <Setter Property="ThumbColor" Value="{DynamicResource TnMetal700}" />
+        <Setter Property="VisualStateManager.VisualStateGroups">
+            <VisualStateGroupList>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Property="Opacity" Value="0.35" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateGroupList>
+        </Setter>
+    </Style>
+
+    <!-- Все Label по умолчанию — Trianon -->
+    <Style TargetType="Label" BasedOn="{StaticResource TnBody}" />
+
+    <!-- Фон всех страниц — тёплый лён; ApplyToDerivedTypes покрывает ContentPage и производные -->
+    <Style TargetType="Page" ApplyToDerivedTypes="True">
+        <Setter Property="BackgroundColor" Value="{DynamicResource TnBgBase}" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+
+</ResourceDictionary>
