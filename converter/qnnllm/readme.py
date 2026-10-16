@@ -1,6 +1,10 @@
 """README.md пакета модели (карточка бакета HuggingFace)."""
 import os
 
+GITHUB = "https://github.com/tdav/AI_NPU"
+GITHUB_NOTE = (f"**Исходный код, приложение и конвертер:** [{GITHUB.removeprefix('https://')}]({GITHUB}) — чат AiNpu "
+               "для Android (модель скачивается в разделе «Модели»), рантайм qnn-llm и конвертер qnn-llm-convert.")
+
 
 def write_readme(pkg, meta, repo_id):
     v = meta.get("verification")
@@ -20,8 +24,10 @@ pipeline_tag: text-generation
 
 # {repo_id.split('/')[1]} ({meta['quant']}) — QNN context binary для NPU {meta['soc']}
 
+{GITHUB_NOTE}
+
 Модель [{repo_id}](https://huggingface.co/{repo_id}) (вариант `{meta['quant']}`), пересобранная инструментом
-`qnn-llm-convert` (репозиторий AI_NPU) в context binary QNN HTP для {meta['soc']}, QAIRT {meta['qairt']}.
+`qnn-llm-convert` ([AI_NPU]({GITHUB})) в context binary QNN HTP для {meta['soc']}, QAIRT {meta['qairt']}.
 Только текстовая часть. Контекст {meta['context_length']} токенов, графы prefill AR-128 и decode AR-1 с общими весами.
 
 **Изменено относительно оригинала:** граф переписан под статические формы QNN; веса INT4 переупакованы в

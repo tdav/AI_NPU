@@ -2,17 +2,17 @@
 
 Консольный инструмент: `qnn-llm-convert --url <HF-репозиторий onnx-community> --quant q4` скачивает выбранный
 вариант ONNX, пересобирает его в статические графы для NPU Qualcomm, компилирует context binary и загружает
-результат в новый бакет HuggingFace. Рантайм (`native/lfm2-npu` → универсальный) и приложение AiNpu запускают
-такие модели по `metadata.json`.
+результат в новый бакет HuggingFace. Рантайм `native/qnn-llm` и приложение AiNpu запускают такие модели
+по `metadata.json`.
 
 ## Состав
 
 | Часть | Где | Что делает |
 |---|---|---|
 | Ядро | `converter/qnnllm/` (Python 3.10) | скачивание, адаптер архитектуры, статический ONNX + энкодинги INT4, проверка в ORT, qairt-converter, context binary, упаковка, загрузка |
-| Адаптеры | `converter/qnnllm/arch/` | `lfm2` (LFM2/LFM2.5), `gemma4_text` (Gemma 4 E2B/E4B, только текст) |
+| Адаптеры | `converter/qnnllm/arch/` | `tjs_decoder.py`: `lfm2` (LFM2/LFM2.5), `qwen3`; `gemma4.py`: `gemma4_text` (Gemma 4 E2B/E4B, только текст) |
 | Обёртка Windows | `converter/win/` (.NET, single-file exe) | ставит Python 3.10 через uv и зависимости, находит QAIRT SDK, запускает ядро |
-| Рантайм | `native/lfm2-npu` | исполняет части по `metadata.json` (роли входов: эмбеддинги, маски, RoPE, KV-кэши, состояния) |
+| Рантайм | `native/qnn-llm` | исполняет части по `metadata.json` (роли входов: эмбеддинги, маски, RoPE, KV-кэши, состояния) |
 
 Требования: QAIRT SDK 2.40.0.251030 (по лицензии Qualcomm в инструмент не входит), 32 ГБ свободной ОЗУ,
 ~60 ГБ на диске для модели класса 4B, токен HuggingFace для загрузки (`hf auth login` или `HF_TOKEN`).
@@ -109,4 +109,5 @@ HTP v75 исполняет FullyConnected «FP16 × INT4» только для *
 }
 ```
 
-Полная схема — в `converter/qnnllm/metadata.py`.
+Полная схема — в `converter/qnnllm/build.py` (сборка `metadata.json`) и `converter/qnnllm/host.py` (эталонный хост,
+роли тензоров).
