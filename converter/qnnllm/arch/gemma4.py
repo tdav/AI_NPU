@@ -141,7 +141,7 @@ class Gemma4Text:
                 roles.append({"name": f"rope_sin_{group}", "role": "rope_sin", "table": group})
             return ropes[group]
 
-        kv_all = {}  # слой-владелец кэша -> (k_all, v_all) в этой части
+        kv_all = {}  # слой-владелец кэша -> (past_k, new_k, past_v, new_v, слотов прошлого) в этой части
 
         def kv_for(owner, new_k=None, new_v=None):
             if owner in kv_all:
@@ -158,7 +158,7 @@ class Gemma4Text:
                 new_v = g.inp(f"new_value_{owner}", [1, kvh, n, hd])
                 roles.append({"name": f"new_key_{owner}", "role": "carry"})
                 roles.append({"name": f"new_value_{owner}", "role": "carry"})
-            kv_all[owner] = (g.op("Concat", [pk, new_k], axis=3), g.op("Concat", [pv, new_v], axis=2))
+            kv_all[owner] = (pk, new_k, pv, new_v, ps)
             return kv_all[owner]
 
         for i in layers:
@@ -185,11 +185,12 @@ class Gemma4Text:
                 nv = g.out(g.op("Transpose", [v], perm=[0, 2, 1, 3]), f"new_value_{i}", [1, kvh, n, hd])
                 roles.append({"name": f"new_key_{i}", "role": "cache_out", "cache": f"k{i}"})
                 roles.append({"name": f"new_value_{i}", "role": "cache_out", "cache": f"v{i}"})
-                k_all, v_all = kv_for(i, nk, nv)
+                kv = kv_for(i, nk, nv)
             else:
-                k_all, v_all = kv_for(self.kv_layer(i))
+                kv = kv_for(self.kv_layer(i))
             kvh, _ = self.kv_dims(i)
-            a = g.attention(q, k_all, v_all, mask(group), self.nh, kvh, n, hd, 1.0)
+            pk, nk_, pv, nv_, ps = kv
+            a = g.attention(q, pk, nk_, pv, nv_, mask(group), self.nh, kvh, n, hd, 1.0, ps)
             a = g.linear_q4(a, f"{pre}.o_proj.weight", *self._w(f"layers.{i}/attn/o_proj"))
             a = g.rmsnorm(a, self._vec(f"{pre}.post_attention_layernorm.weight"), self.eps, wname=f"{pre}.post_attention_layernorm.weight")
             x = g.op("Add", [res, a])

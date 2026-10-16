@@ -129,8 +129,7 @@ class TjsDecoder:
                 nv = g.out(g.op("Transpose", [v], perm=[0, 2, 1, 3]), f"new_value_{i}", [1, self.kvh, n, self.hd])
                 roles += [{"name": f"new_key_{i}", "role": "cache_out", "cache": f"k{i}"},
                           {"name": f"new_value_{i}", "role": "cache_out", "cache": f"v{i}"}]
-                a = g.attention(q, g.op("Concat", [pk, nk], axis=3), g.op("Concat", [pv, nv], axis=2), mask,
-                                self.nh, self.kvh, n, self.hd, self.hd ** -0.5)
+                a = g.attention(q, pk, nk, pv, nv, mask, self.nh, self.kvh, n, self.hd, self.hd ** -0.5, P)
                 y = g.linear_q4(a, f"{pre}.attn.o_proj.weight", *self._w(f"{pre}.attn.o_proj"))
             x = g.op("Add", [y, res])
             xn = g.rmsnorm(x, self._vec(fw), self.eps, prescale=self.prescale, wname=fw)

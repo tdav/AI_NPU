@@ -138,18 +138,23 @@ class Graph:
         rot = self.op("Concat", [self.op("Neg", [x2]), x1], axis=axis)
         return self.op("Add", [self.op("Mul", [x, cos]), self.op("Mul", [rot, sin])])
 
-    def attention(self, q, k_all, v_all, mask, n_q_heads, n_kv_heads, n, head_dim, scale):
-        """GQA: q [1, N, Hq, D] (после RoPE), k_all [1, Hkv, D, T], v_all [1, Hkv, T, D], mask [1, 1, N, T]
-        аддитивная. Головы q g·r..g·r+r-1 -> kv-голова g. -> [1, N, Hq·D]."""
+    def attention(self, q, past_k, new_k, past_v, new_v, mask, n_q_heads, n_kv_heads, n, head_dim, scale, past_len):
+        """GQA по раздельным кэшу и текущим K/V: q [1, N, Hq, D] (после RoPE), past_k [1, Hkv, D, P], new_k
+        [1, Hkv, D, N], past_v [1, Hkv, P, D], new_v [1, Hkv, N, D], mask [1, 1, N, P+N] аддитивная.
+        Кэш только читается: Concat(past, new) копировал бы весь кэш на каждом шаге (на HTP v75 — в 6,5 раза
+        дольше самого внимания). Склеиваются лишь оценки [.., P+N]; softmax общий. Головы q g·r..g·r+r-1 ->
+        kv-голова g. -> [1, N, Hq·D]."""
         r = n_q_heads // n_kv_heads
         qt = self.op("Transpose", [q], perm=[0, 2, 1, 3])                       # [1, Hq, N, D]
         qg = self.op("Reshape", [qt, self.ints([1, n_kv_heads, r * n, head_dim])])
         if scale != 1.0:
             qg = self.op("Mul", [qg, self.scalar(scale)])
-        sc = self.op("MatMul", [qg, k_all])                                     # [1, Hkv, rN, T]
+        sc = self.op("Concat", [self.op("MatMul", [qg, past_k]), self.op("MatMul", [qg, new_k])], axis=3)  # [1, Hkv, rN, P+N]
         m = mask if r == 1 else self.op("Concat", [mask] * r, axis=2) if n > 1 else self.op("Tile", [mask, self.ints([1, 1, r, 1])])
         pr = self.op("Softmax", [self.op("Add", [sc, m])], axis=-1)
-        o = self.op("MatMul", [pr, v_all])                                      # [1, Hkv, rN, D]
+        p_past = self.op("Slice", [pr, self.ints([0]), self.ints([past_len]), self.ints([3])])
+        p_new = self.op("Slice", [pr, self.ints([past_len]), self.ints([past_len + n]), self.ints([3])])
+        o = self.op("Add", [self.op("MatMul", [p_past, past_v]), self.op("MatMul", [p_new, new_v])])  # [1, Hkv, rN, D]
         o = self.op("Reshape", [o, self.ints([1, n_q_heads, n, head_dim])])
         o = self.op("Transpose", [o], perm=[0, 2, 1, 3])
         return self.op("Reshape", [o, self.ints([1, n, n_q_heads * head_dim])])

@@ -65,9 +65,66 @@ std::vector<std::string> Split(const std::string &s, char c) {
   return r;
 }
 
-struct Buf {  // буфер тензора (FP16), может разделяться между графами
-  std::vector<f16> data;
-  size_t Bytes() const { return data.size() * sizeof(f16); }
+// Общая с DSP память (rpcmem из libcdsprpc.so): буфер, зарегистрированный в контексте QNN (memRegister, ION),
+// HTP читает и пишет напрямую — без копирования входов/выходов при каждом graphExecute.
+class RpcMem {
+ public:
+  RpcMem() {
+    if (getenv("QNN_LLM_NO_RPCMEM")) return;  // отладка: обычные буферы с копированием
+    lib_ = dlopen("libcdsprpc.so", RTLD_NOW | RTLD_LOCAL);
+    if (!lib_) return;
+    alloc_ = reinterpret_cast<void *(*)(int, uint32_t, int)>(dlsym(lib_, "rpcmem_alloc"));
+    free_ = reinterpret_cast<void (*)(void *)>(dlsym(lib_, "rpcmem_free"));
+    to_fd_ = reinterpret_cast<int (*)(void *)>(dlsym(lib_, "rpcmem_to_fd"));
+  }
+  bool Ok() const { return alloc_ && free_ && to_fd_; }
+  // RPCMEM_HEAP_ID_SYSTEM = 25, RPCMEM_DEFAULT_FLAGS = 1
+  void *Alloc(size_t bytes) { return bytes < (1u << 31) ? alloc_(25, 1, (int)bytes) : nullptr; }
+  int Fd(void *p) { return to_fd_(p); }
+  void Free(void *p) { free_(p); }
+
+ private:
+  void *lib_ = nullptr;
+  void *(*alloc_)(int, uint32_t, int) = nullptr;
+  void (*free_)(void *) = nullptr;
+  int (*to_fd_)(void *) = nullptr;
+};
+
+RpcMem &Rpc() {
+  static RpcMem rpc;
+  return rpc;
+}
+
+struct Buf {  // буфер тензора (FP16): в rpcmem (fd >= 0) или в куче
+  f16 *ptr = nullptr;
+  size_t count = 0;
+  int fd = -1;
+  std::vector<f16> heap;
+  f16 *data() { return ptr; }
+  const f16 *data() const { return ptr; }
+  size_t size() const { return count; }
+  size_t Bytes() const { return count * sizeof(f16); }
+  void Fill(f16 v) { std::fill(ptr, ptr + count, v); }
+
+  void Alloc(size_t n) {
+    count = n;
+    if (Rpc().Ok()) {
+      ptr = static_cast<f16 *>(Rpc().Alloc(Bytes()));
+      if (ptr) {
+        fd = Rpc().Fd(ptr);
+        memset(ptr, 0, Bytes());
+        return;
+      }
+    }
+    heap.assign(n, (f16)0);
+    ptr = heap.data();
+  }
+
+  void Release() {
+    if (fd >= 0 && ptr) Rpc().Free(ptr);
+    ptr = nullptr;
+    fd = -1;
+  }
 };
 
 struct Tensor {
@@ -80,6 +137,7 @@ struct Tensor {
 struct GraphRt {
   std::string name;
   Qnn_GraphHandle_t handle = nullptr;
+  Qnn_ContextHandle_t ctx = nullptr;
   std::vector<Tensor> in, out;
   std::vector<Qnn_Tensor_t> in_raw, out_raw;
   std::map<std::string, size_t> in_idx, out_idx;
@@ -110,7 +168,36 @@ class Qnn {
     SetBurst();
   }
 
+  // Регистрация буфера rpcmem в контексте графа (один дескриптор на пару контекст + буфер).
+  Qnn_MemHandle_t Register(Qnn_ContextHandle_t ctx, Buf *b, const Tensor &t) {
+    auto key = std::make_pair(ctx, (void *)b->ptr);
+    auto it = handles_.find(key);
+    if (it != handles_.end()) return it->second;
+    Qnn_MemDescriptor_t d = QNN_MEM_DESCRIPTOR_INIT;
+    d.memShape = {(uint32_t)t.dims.size(), const_cast<uint32_t *>(t.dims.data()), nullptr};
+    d.dataType = QNN_DATATYPE_FLOAT_16;
+    d.memType = QNN_MEM_TYPE_ION;
+    d.ionInfo.fd = b->fd;
+    Qnn_MemHandle_t h = nullptr;
+    if (qnn_.memRegister(ctx, &d, 1, &h) != QNN_SUCCESS) {
+      // Адресное пространство DSP (32 бита на v75) кончилось: тензор останется с копированием.
+      if (!register_failed_++) LFM2_LOG("memRegister %s: нет места в адресном пространстве DSP, дальше — копирование", t.name.c_str());
+      h = nullptr;
+    }
+    handles_[key] = h;
+    return h;
+  }
+
+  void DeregisterAll() {
+    for (auto &kv : handles_)
+      if (kv.second) qnn_.memDeRegister(&kv.second, 1);
+    handles_.clear();
+  }
+
+  int RegisterFailures() const { return register_failed_; }
+
   ~Qnn() {
+    DeregisterAll();
     for (auto c : contexts_) qnn_.contextFree(c, nullptr);
     if (device_ && qnn_.deviceFree) qnn_.deviceFree(device_);
     if (backend_) qnn_.backendFree(backend_);
@@ -202,6 +289,7 @@ class Qnn {
     munmap(mem, size);
     for (auto &g : graphs) {
       if (qnn_.graphRetrieve(ctx, g->name.c_str(), &g->handle) != QNN_SUCCESS) Die("graphRetrieve " + g->name);
+      g->ctx = ctx;
     }
     contexts_.push_back(ctx);
     LFM2_LOG("loaded %s (%zu MB, %d graphs) in %.2fs", path.c_str(), size >> 20, (int)graphs.size(), Now() - t0);
@@ -243,11 +331,21 @@ class Qnn {
   Qnn_DeviceHandle_t device_ = nullptr;
   void *lib_ = nullptr, *slib_ = nullptr;
   std::vector<Qnn_ContextHandle_t> contexts_;
+  std::map<std::pair<Qnn_ContextHandle_t, void *>, Qnn_MemHandle_t> handles_;
+  int register_failed_ = 0;
 };
 
-void Bind(Tensor *t, Buf *b) {
-  if (b->data.size() != t->elems) Die("размер буфера не совпадает для " + t->name);
-  t->t.v1.clientBuf.data = b->data.data();
-  t->t.v1.clientBuf.dataSize = b->Bytes();
+// Привязка тензора графа к буферу: rpcmem — по дескриптору памяти (без копирования), иначе — clientBuf.
+void Bind(Qnn *qnn, GraphRt *g, Tensor *t, Buf *b) {
+  if (b->size() != t->elems) Die("размер буфера не совпадает для " + t->name);
+  Qnn_MemHandle_t h = b->fd >= 0 ? qnn->Register(g->ctx, b, *t) : nullptr;
+  if (h) {
+    t->t.v1.memType = QNN_TENSORMEMTYPE_MEMHANDLE;
+    t->t.v1.memHandle = h;
+  } else {
+    t->t.v1.memType = QNN_TENSORMEMTYPE_RAW;
+    t->t.v1.clientBuf.data = b->data();
+    t->t.v1.clientBuf.dataSize = b->Bytes();
+  }
 }
 

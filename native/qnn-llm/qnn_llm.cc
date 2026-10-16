@@ -125,14 +125,24 @@ class Engine {
     for (auto &s : meta_.value("states", json::array())) {
       size_t elems = 1;
       for (int d : s["shape"]) elems *= d;
-      state_[s["name"]].data.assign(elems, (f16)0);
+      state_[s["name"]].Alloc(elems);
     }
     for (auto &p : meta_["parts"]) {
       for (auto &g : qnn_->Load(model_dir + "/" + p["file"].get<std::string>())) graphs_[g->name] = std::move(g);
     }
-    for (auto &p : meta_["parts"]) {
-      for (int n : ars_) Bind(p["graphs"][std::to_string(n)], n);
-    }
+    // Сначала графы decode (меньший N): их KV-кэши читаются на каждом токене, и они первыми получают
+    // общую с DSP память; prefill (AR-128) идёт редко и может остаться с копированием.
+    std::vector<int> order = ars_;
+    std::sort(order.begin(), order.end());
+    for (int n : order)
+      for (auto &p : meta_["parts"]) Bind(p["graphs"][std::to_string(n)], n);
+    LFM2_LOG("буферы: rpcmem %s, отказов memRegister %d", Rpc().Ok() ? "да" : "нет", qnn_->RegisterFailures());
+  }
+
+  ~Engine() {
+    qnn_->DeregisterAll();  // до освобождения rpcmem
+    for (auto &b : bufs_) b.second.Release();
+    for (auto &b : state_) b.second.Release();
   }
 
   int ContextLength() const { return cl_; }
@@ -142,7 +152,7 @@ class Engine {
   void Reset() {
     n_past_ = 0;
     for (auto &g : groups_) std::fill(g.second.slot_pos.begin(), g.second.slot_pos.end(), -1);
-    for (auto &s : state_) std::fill(s.second.data.begin(), s.second.data.end(), (f16)0);
+    for (auto &s : state_) s.second.Fill((f16)0);
   }
 
   std::vector<float> Append(const std::vector<int> &ids) {
@@ -195,8 +205,8 @@ class Engine {
 
   Buf *Named(const std::string &key, size_t elems) {
     Buf &b = bufs_[key];
-    if (b.data.empty()) b.data.assign(elems, (f16)0);
-    if (b.data.size() != elems) Die("размер буфера " + key);
+    if (!b.ptr) b.Alloc(elems);
+    if (b.size() != elems) Die("размер буфера " + key);
     return &b;
   }
 
@@ -205,56 +215,65 @@ class Engine {
     Plan &plan = plans_[n];
     plan.graphs.push_back(g);
     std::string ns = "@" + std::to_string(n);
-    for (auto &t : meta_["graphs"][gname]["tensors"]) {
-      std::string name = t["name"], role = t["role"];
-      bool is_in = g->in_idx.count(name) > 0;
-      Tensor *tensor = is_in ? &g->in[g->in_idx[name]] : g->out_idx.count(name) ? &g->out[g->out_idx[name]] : nullptr;
-      if (!tensor) Die("в графе " + gname + " нет тензора " + name);
-      Buf *b = nullptr;
-      if (role == "embedding" || role == "valid") {
-        b = Named(role + ":" + name + ns, tensor->elems);
-        plan.inputs.push_back({role, name, b, t});
-      } else if (role == "mask") {
-        std::string key = "mask:" + t["cache_group"].get<std::string>() + ":" + std::to_string(t.value("window", 0)) + ns;
-        bool fresh = bufs_.find(key) == bufs_.end();
-        b = Named(key, tensor->elems);
-        if (fresh) plan.inputs.push_back({role, key, b, t});
-      } else if (role == "rope_cos" || role == "rope_sin") {
-        std::string key = role + ":" + t["table"].get<std::string>() + ns;
-        bool fresh = bufs_.find(key) == bufs_.end();
-        b = Named(key, tensor->elems);
-        if (fresh) plan.inputs.push_back({role, key, b, t});
-      } else if (role == "cache_in") {
-        b = Named("cache:" + t["cache"].get<std::string>() + ns, tensor->elems);
-      } else if (role == "cache_out") {
-        b = Named("new:" + name + ns, tensor->elems);
-        plan.cache_writes.push_back({t["cache"], b});
-      } else if (role == "carry") {
-        b = Named("carry:" + name + ns, tensor->elems);
-      } else if (role == "carry_out") {
-        b = Named("carry:" + t["to"].get<std::string>() + ns, tensor->elems);
-      } else if (role == "state_in") {
-        b = &state_[t["state"]];
-        if (b->data.size() != tensor->elems) Die("размер состояния " + name);
-      } else if (role == "state_out") {
-        b = Named("stateout:" + name + ns, tensor->elems);
-        plan.state_writes.push_back({t["state"], b});
-      } else if (role == "logits") {
-        b = Named("logits" + ns, tensor->elems);
-        plan.logits = b;
-      } else {
-        Die("неизвестная роль " + role);
+    // Сначала входы, затем выходы: перенос (carry) читается из буфера предыдущей части-производителя, а
+    // выход пишется в новый буфер этой части — вход и выход одного графа не делят память (HTP пишет на месте).
+    for (int pass = 0; pass < 2; ++pass) {
+      for (auto &t : meta_["graphs"][gname]["tensors"]) {
+        std::string name = t["name"], role = t["role"];
+        bool is_in = g->in_idx.count(name) > 0;
+        if ((pass == 0) != is_in) continue;
+        Tensor *tensor = is_in ? &g->in[g->in_idx[name]] : g->out_idx.count(name) ? &g->out[g->out_idx[name]] : nullptr;
+        if (!tensor) Die("в графе " + gname + " нет тензора " + name);
+        Buf *b = nullptr;
+        if (role == "embedding" || role == "valid") {
+          b = Named(role + ":" + name + ns, tensor->elems);
+          plan.inputs.push_back({role, name, b, t});
+        } else if (role == "mask") {
+          std::string key = "mask:" + t["cache_group"].get<std::string>() + ":" + std::to_string(t.value("window", 0)) + ns;
+          bool fresh = bufs_.find(key) == bufs_.end();
+          b = Named(key, tensor->elems);
+          if (fresh) plan.inputs.push_back({role, key, b, t});
+        } else if (role == "rope_cos" || role == "rope_sin") {
+          std::string key = role + ":" + t["table"].get<std::string>() + ns;
+          bool fresh = bufs_.find(key) == bufs_.end();
+          b = Named(key, tensor->elems);
+          if (fresh) plan.inputs.push_back({role, key, b, t});
+        } else if (role == "cache_in") {
+          b = Named("cache:" + t["cache"].get<std::string>() + ns, tensor->elems);
+        } else if (role == "cache_out") {
+          b = Named("new:" + name + ns, tensor->elems);
+          plan.cache_writes.push_back({t["cache"], b});
+        } else if (role == "carry") {
+          auto it = carry_[n].find(name);
+          if (it == carry_[n].end()) Die("перенос " + name + " графа " + gname + " не выдан предыдущей частью");
+          b = &bufs_.at(it->second);
+        } else if (role == "carry_out") {
+          std::string to = t["to"], key = "carry:" + to + ns + "#" + gname;
+          b = Named(key, tensor->elems);
+          carry_[n][to] = key;
+        } else if (role == "state_in") {
+          b = &state_[t["state"]];
+          if (b->size() != tensor->elems) Die("размер состояния " + name);
+        } else if (role == "state_out") {
+          b = Named("stateout:" + name + ns, tensor->elems);
+          plan.state_writes.push_back({t["state"], b});
+        } else if (role == "logits") {
+          b = Named("logits" + ns, tensor->elems);
+          plan.logits = b;
+        } else {
+          Die("неизвестная роль " + role);
+        }
+        ::Bind(qnn_.get(), g, tensor, b);
       }
-      ::Bind(tensor, b);
     }
     g->in_raw.clear();
     g->out_raw.clear();
     for (auto &t : g->in) {
-      if (!t.t.v1.clientBuf.data) Die("вход " + t.name + " графа " + gname + " не описан в metadata");
+      if (t.t.v1.memType == QNN_TENSORMEMTYPE_RAW && !t.t.v1.clientBuf.data) Die("вход " + t.name + " графа " + gname + " не описан в metadata");
       g->in_raw.push_back(t.t);
     }
     for (auto &t : g->out) {
-      if (!t.t.v1.clientBuf.data) Die("выход " + t.name + " графа " + gname + " не описан в metadata");
+      if (t.t.v1.memType == QNN_TENSORMEMTYPE_RAW && !t.t.v1.clientBuf.data) Die("выход " + t.name + " графа " + gname + " не описан в metadata");
       g->out_raw.push_back(t.t);
     }
   }
@@ -266,10 +285,10 @@ class Engine {
     for (int r = pad; r < n; ++r) pos[r] = n_past_ + r - pad;
     Plan &plan = plans_.at(n);
     for (auto &job : plan.inputs) {
-      f16 *dst = job.buf->data.data();
+      f16 *dst = job.buf->data();
       if (job.role == "embedding") {
         const EmbeddingTable &e = *emb_.at(job.spec["source"].get<std::string>());
-        std::fill(job.buf->data.begin(), job.buf->data.end(), (f16)0);
+        job.buf->Fill((f16)0);
         for (int r = 0; r < real; ++r) e.Row(ids[r], dst + (size_t)(pad + r) * e.dim);
       } else if (job.role == "valid") {
         for (int r = 0; r < n; ++r) dst[r] = (f16)(r < pad ? 0.0f : 1.0f);
@@ -303,10 +322,10 @@ class Engine {
     for (auto &w : plan.cache_writes) {
       const CacheSpec &c = caches_.at(w.cache);
       const Group &grp = groups_.at(c.group);
-      const f16 *src = w.src->data.data();
+      const f16 *src = w.src->data();
       for (int nn : ars_) {
         int S = Slots(c.group, nn);
-        f16 *dst = bufs_.at("cache:" + w.cache + "@" + std::to_string(nn)).data.data();
+        f16 *dst = bufs_.at("cache:" + w.cache + "@" + std::to_string(nn)).data();
         for (int r = pad; r < n; ++r) {
           int64_t slot = grp.context ? pos[r] : pos[r] % grp.ring;
           if (slot >= S) continue;
@@ -326,10 +345,11 @@ class Engine {
         int64_t slot = g.second.context ? pos[r] : pos[r] % g.second.ring;
         if (slot < (int64_t)g.second.slot_pos.size()) g.second.slot_pos[slot] = pos[r];
       }
-    for (auto &w : plan.state_writes) memcpy(state_[w.state].data.data(), w.src->data.data(), w.src->Bytes());
+    for (auto &w : plan.state_writes) memcpy(state_[w.state].data(), w.src->data(), w.src->Bytes());
     n_past_ += real;
-    std::vector<float> logits(plan.logits->data.size());
-    for (size_t i = 0; i < logits.size(); ++i) logits[i] = (float)plan.logits->data[i];
+    std::vector<float> logits(plan.logits->size());
+    const f16 *lg = plan.logits->data();
+    for (size_t i = 0; i < logits.size(); ++i) logits[i] = (float)lg[i];
     return logits;
   }
 
@@ -344,6 +364,7 @@ class Engine {
   std::map<std::string, CacheSpec> caches_;
   std::map<std::string, Buf> state_;
   std::map<std::string, Buf> bufs_;
+  std::map<int, std::map<std::string, std::string>> carry_;  // n -> имя входа переноса -> ключ буфера производителя
   std::map<int, Plan> plans_;
 };
 
