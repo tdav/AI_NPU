@@ -3,8 +3,8 @@ using AiNpu.Services;
 
 namespace AiNpu.Tests;
 
-// Сверка токенизатора с HF tokenizers 0.23.2 на двух схемах BPE: byte-level (LFM2) и SentencePiece-подобной
-// с byte_fallback (Gemma 4). TestData/<модель>/tokenizer-cases.json: русский, английский, код, числа, эмодзи,
+// Сверка токенизатора с HF tokenizers 0.23.2 на двух схемах BPE: byte-level (LFM2, Qwen3 с NFC) и
+// SentencePiece-подобной с byte_fallback (Gemma 4). TestData/<модель>/tokenizer-cases.json: русский, английский, код, числа, эмодзи,
 // CJK, спецтокены, пробелы/переводы строк, случайные смеси.
 public class HfTokenizerTests
 {
@@ -12,6 +12,7 @@ public class HfTokenizerTests
     {
         ["lfm2"] = Load("lfm2"),
         ["gemma4"] = Load("gemma4"),
+        ["qwen3"] = Load("qwen3"),
     };
 
     private static readonly ChatTemplate lfm2Chat = new("<|startoftext|>", "<|im_start|>system\n{content}<|im_end|>\n",
@@ -22,7 +23,7 @@ public class HfTokenizerTests
 
     public static IEnumerable<object[]> Cases()
     {
-        foreach (string model in new[] { "lfm2", "gemma4" })
+        foreach (string model in new[] { "lfm2", "gemma4", "qwen3" })
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", model, "tokenizer-cases.json")));
             int index = 0;
@@ -52,7 +53,8 @@ public class HfTokenizerTests
             expected = expected.Replace(special, string.Empty);
         }
 
-        Assert.Equal(expected, tokenizers[model].Decode(ids));
+        // токенизаторы с нормализатором NFC (Qwen) возвращают текст в NFC — как и HF tokenizers
+        Assert.Equal(expected.Normalize(System.Text.NormalizationForm.FormC), tokenizers[model].Decode(ids).Normalize(System.Text.NormalizationForm.FormC));
     }
 
     [Fact]

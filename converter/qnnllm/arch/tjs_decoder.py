@@ -1,5 +1,7 @@
-"""LFM2 / LFM2.5 (Liquid AI), onnx-community model_<quant>.onnx: conv-блоки (короткая свёртка, ядро 3) +
-GQA-внимание с qk-norm, SwiGLU. Проверено на LFM2-2.6B q4 (бакет tdavron/lfm2-2.6b-q4-qnn-sm8650-bucket).
+"""Декодеры экспорта onnx-community/transformers.js (model_<quant>.onnx, MatMulNBits + GroupQueryAttention):
+LFM2/LFM2.5 (conv-блоки + GQA-внимание с qk-norm) и Qwen3 (только внимание с qk-norm). Общее: RMSNorm, SwiGLU,
+RoPE из cos_cache/sin_cache, эмбеддинги fp32 (на хост — f16), lm_head = эмбеддинги (INT8 per-channel на NPU).
+Проверено: LFM2-2.6B q4, Qwen3-4B-Instruct-2507 q4.
 
 Conv-слой: in_proj → B, C, x; Bx = B·x (у левого паддинга ×valid = 0) → окно [state(2), Bx(N)] → свёртка
 3 сдвигами → y = C·conv → out_proj; новое состояние — 2 последних строки окна.
@@ -12,23 +14,26 @@ import numpy as np
 from ..graph import Graph
 from ..q4 import Q4Model
 
-MODEL_TYPES = ("lfm2",)
+MODEL_TYPES = ("lfm2", "qwen3")
 
 
-class Lfm2:
-    name = "lfm2"
+class TjsDecoder:
 
     def __init__(self, repo_dir, quant, context_length=4096, parts=None):
         self.dir, self.quant, self.cl = repo_dir, quant, context_length
         c = json.load(open(os.path.join(repo_dir, "config.json")))
         self.c = c
-        self.types = c["layer_types"]
+        self.name = c["model_type"]
+        self.types = c.get("layer_types") or ["full_attention"] * c["num_hidden_layers"]
         self.L = c["num_hidden_layers"]
         self.H = c["hidden_size"]
         self.nh = c["num_attention_heads"]
         self.kvh = c["num_key_value_heads"]
-        self.hd = self.H // self.nh
-        self.eps = c.get("norm_eps", 1e-5)
+        self.hd = c.get("head_dim") or self.H // self.nh
+        self.eps = c.get("norm_eps", c.get("rms_norm_eps", 1e-5))
+        # Qwen: в остаточном потоке бывают выбросы в тысячи — x² в FP16 на NPU переполнится; делим x перед квадратом.
+        # LFM2 проверена без масштаба (на устройстве) — оставлена как есть.
+        self.prescale = 1.0 if self.name == "lfm2" else 1.0 / 32
         self.vocab = c["vocab_size"]
         n = max(1, round(self.L / 10))
         b = np.linspace(0, self.L, n + 1).round().astype(int)
@@ -52,6 +57,13 @@ class Lfm2:
     def _w(self, prefix):
         return self.m.matmul_nbits(self.nodes[prefix])
 
+    def _norm_names(self, i):
+        """Имена норм слоя: LFM2 — operator/ffn_layernorm, Qwen и др. — input/post_attention_layernorm."""
+        pre = f"model.layers.{i}"
+        if self.m.has(f"{pre}.operator_layernorm.weight"):
+            return f"{pre}.operator_layernorm.weight", f"{pre}.ffn_layernorm.weight"
+        return f"{pre}.input_layernorm.weight", f"{pre}.post_attention_layernorm.weight"
+
     def _vec(self, name):
         return self.m.array(name).astype(np.float32)
 
@@ -65,20 +77,22 @@ class Lfm2:
         roles.append({"name": "hidden_in", "role": "embedding", "source": "tok"} if pi == 0 else
                      {"name": "hidden_in", "role": "carry"})
         P = self.cl - n
-        mask = g.inp("mask_context", [1, 1, n, P + n])
-        roles.append({"name": "mask_context", "role": "mask", "cache_group": "context", "window": 0})
-        cos = g.inp("rope_cos", [1, n, 1, self.hd])
-        sin = g.inp("rope_sin", [1, n, 1, self.hd])
-        roles += [{"name": "rope_cos", "role": "rope_cos", "table": "rope"}, {"name": "rope_sin", "role": "rope_sin", "table": "rope"}]
+        has_attn = any(self.types[i] != "conv" for i in layers)
+        if has_attn:
+            mask = g.inp("mask_context", [1, 1, n, P + n])
+            roles.append({"name": "mask_context", "role": "mask", "cache_group": "context", "window": 0})
+            cos = g.inp("rope_cos", [1, n, 1, self.hd])
+            sin = g.inp("rope_sin", [1, n, 1, self.hd])
+            roles += [{"name": "rope_cos", "role": "rope_cos", "table": "rope"}, {"name": "rope_sin", "role": "rope_sin", "table": "rope"}]
         valid = None
-        if n > 1:
+        if n > 1 and any(self.types[i] == "conv" for i in layers):  # левый паддинг обнуляет вход свёртки
             valid = g.inp("valid", [1, n, 1])
             roles.append({"name": "valid", "role": "valid"})
         for i in layers:
             pre = f"model.layers.{i}"
             res = x
-            nw = f"{pre}.operator_layernorm.weight"
-            xn = g.rmsnorm(x, self._vec(nw), self.eps, wname=nw)
+            nw, fw = self._norm_names(i)
+            xn = g.rmsnorm(x, self._vec(nw), self.eps, prescale=self.prescale, wname=nw)
             if self.types[i] == "conv":
                 st = g.inp(f"conv_state_{i}", [1, 2, H])
                 roles.append({"name": f"conv_state_{i}", "role": "state_in", "state": f"conv{i}"})
@@ -119,8 +133,7 @@ class Lfm2:
                                 self.nh, self.kvh, n, self.hd, self.hd ** -0.5)
                 y = g.linear_q4(a, f"{pre}.attn.o_proj.weight", *self._w(f"{pre}.attn.o_proj"))
             x = g.op("Add", [y, res])
-            fw = f"{pre}.ffn_layernorm.weight"
-            xn = g.rmsnorm(x, self._vec(fw), self.eps, wname=fw)
+            xn = g.rmsnorm(x, self._vec(fw), self.eps, prescale=self.prescale, wname=fw)
             a = g.linear_q4(xn, f"{pre}.mlp.w1.weight", *self._w(f"{pre}.mlp.gate_proj"))
             b = g.linear_q4(xn, f"{pre}.mlp.w3.weight", *self._w(f"{pre}.mlp.up_proj"))
             y = g.linear_q4(g.op("Mul", [g.silu(a), b]), f"{pre}.mlp.w2.weight", *self._w(f"{pre}.mlp.down_proj"))
@@ -128,7 +141,7 @@ class Lfm2:
         if last:
             xl = g.op("Slice", [x, g.ints([n - 1]), g.ints([n]), g.ints([1])]) if n > 1 else x
             fn = f"model.layers.{self.L}.final_norm_layernorm.weight"
-            xl = g.rmsnorm(xl, self._vec(fn), self.eps, wname=fn)
+            xl = g.rmsnorm(xl, self._vec(fn), self.eps, prescale=self.prescale, wname=fn)
             g.out(g.linear_int8_channel(xl, "lm_head.weight", self._vec("model.embed_tokens.weight")), "logits", [1, 1, self.vocab])
             roles.append({"name": "logits", "role": "logits"})
         else:
@@ -154,12 +167,11 @@ class Lfm2:
                 "caches": caches, "cache_groups": [{"name": "context", "slots": "context"}],
                 "states": [{"name": f"conv{i}", "shape": [1, 2, self.H]} for i, t in enumerate(self.types) if t == "conv"]}
 
-    @staticmethod
-    def chat_format():
-        """Шаблон диалога (chat_template.jinja LFM2, без инструментов)."""
-        return {"bos": "<|startoftext|>", "system": "<|im_start|>system\n{content}<|im_end|>\n",
-                "user": "<|im_start|>user\n{content}<|im_end|>\n", "assistant": "<|im_start|>assistant\n",
-                "end_of_turn": "<|im_end|>\n"}
+    def chat_format(self):
+        """Шаблон диалога ChatML (chat_template.jinja LFM2 и Qwen3, без инструментов); у Qwen нет BOS."""
+        return {"bos": "<|startoftext|>" if self.name == "lfm2" else "",
+                "system": "<|im_start|>system\n{content}<|im_end|>\n", "user": "<|im_start|>user\n{content}<|im_end|>\n",
+                "assistant": "<|im_start|>assistant\n", "end_of_turn": "<|im_end|>\n"}
 
     def special_tokens(self):
         gen = json.load(open(os.path.join(self.dir, "generation_config.json"))) if os.path.exists(os.path.join(self.dir, "generation_config.json")) else {}

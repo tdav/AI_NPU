@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace AiNpu.Services;
 
 // BPE-токенизатор по tokenizer.json (HF tokenizers). Поддержаны две схемы, которых хватает для LLM onnx-community:
-// 1) byte-level (GPT-2: LFM2, Qwen, Llama 3): pre_tokenizer Split(regex) + ByteLevel, байты -> символы bytes_to_unicode;
+// 1) byte-level (GPT-2: LFM2, Qwen, Llama 3): [NFC] + pre_tokenizer Split(regex) + ByteLevel, байты -> bytes_to_unicode;
 // 2) SentencePiece-подобная (Gemma, Llama 2, Mistral): normalizer Replace(" " -> "▁") / Prepend("▁"),
 //    BPE по символам, неизвестные символы -> байтовые токены <0xNN> (byte_fallback).
 // Как в HF, добавленные токены (<|im_start|>, <bos>, …) вырезаются из текста до нормализации.
@@ -24,6 +24,7 @@ public sealed class HfTokenizer
     private readonly string? splitString;
     private readonly List<(string From, string To)> normalizerReplace = [];
     private readonly string? normalizerPrepend;
+    private readonly bool normalizerNfc;
     private readonly List<(string From, string To)> decoderReplace = [];
     private readonly char[] byteToChar = new char[256];
     private readonly Dictionary<char, byte> charToByte = [];
@@ -89,6 +90,9 @@ public sealed class HfTokenizer
                     break;
                 case "Prepend":
                     this.normalizerPrepend = n.GetProperty("prepend").GetString();
+                    break;
+                case "NFC":
+                    this.normalizerNfc = true;
                     break;
                 default:
                     throw new NotSupportedException("normalizer " + n.GetProperty("type").GetString());
@@ -243,6 +247,11 @@ public sealed class HfTokenizer
         if (text.Length == 0)
         {
             return;
+        }
+
+        if (this.normalizerNfc)
+        {
+            text = text.Normalize(NormalizationForm.FormC);
         }
 
         foreach (var (from, to) in this.normalizerReplace)

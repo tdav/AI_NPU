@@ -8,7 +8,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 pkg=$(realpath "$1"); prompt=$2; max_new=${3:-128}; temp=${4:-0}
 ADB=${ADB:-"/mnt/c/Program Files (x86)/Android/android-sdk/platform-tools/adb.exe"}
 PY=${PY:-python3}
-name=$(basename "$pkg"); dev=/data/local/tmp/qnn-llm; ddir=$dev/$name
+name=$(basename "$pkg"); [ "$name" = package ] && name=$(basename "$(dirname "$pkg")")  # work/<модель>/package
+dev=/data/local/tmp/qnn-llm; ddir=$dev/$name
 libs="$here/../../AiNpu/Platforms/Android/qnn/arm64-v8a"
 "$ADB" shell mkdir -p "$ddir"
 push() {  # push <локальный файл> <каталог на устройстве>
