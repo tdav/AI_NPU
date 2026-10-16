@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="AiNpu.Features.Models.ModelsPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:models="clr-namespace:AiNpu.Features.Models"
+    x:DataType="models:ModelsPage"
+    Title="Модели"
+    AutomationId="ModelsPage">
+
+    <CollectionView
+        x:Name="ModelsView"
+        AutomationId="ModelsView"
+        ItemsSource="{Binding Items}"
+        SelectionMode="None">
+        <CollectionView.Header>
+            <VerticalStackLayout Padding="16,16,16,4" Spacing="4">
+                <Label Text="Модели для NPU" Style="{StaticResource TnEyebrow}" />
+                <Label
+                    Text="Модель скачивается один раз и дальше работает без интернета. Загрузка продолжается, пока открыт чат или настройки."
+                    Style="{StaticResource TnMeta}" />
+                <Label x:Name="FreeSpaceLabel" Style="{StaticResource TnMeta}" />
+            </VerticalStackLayout>
+        </CollectionView.Header>
+        <CollectionView.ItemTemplate>
+            <DataTemplate x:DataType="models:ModelItem">
+                <Border
+                    Style="{StaticResource TnCard}"
+                    Margin="16,6"
+                    Stroke="{Binding CardStroke}"
+                    StrokeThickness="{Binding CardStrokeThickness}">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <Label Text="{Binding Title}" Style="{StaticResource TnValue}" FontSize="17" VerticalOptions="Center" />
+                            <Border Grid.Column="1" Style="{StaticResource TnPill}" Padding="10,4" IsVisible="{Binding IsSelected}">
+                                <Label Text="выбрана" FontSize="12" FontFamily="ManropeBold" TextColor="{DynamicResource TnGoldInk}" />
+                            </Border>
+                        </Grid>
+                        <Label Text="{Binding Description}" Style="{StaticResource TnBody}" />
+                        <Label Text="{Binding Status}" Style="{StaticResource TnMeta}" />
+                        <ProgressBar
+                            Progress="{Binding Progress}"
+                            IsVisible="{Binding ShowProgress}"
+                            ProgressColor="{DynamicResource TnGoldBase}" />
+                        <FlexLayout Wrap="Wrap" JustifyContent="Start" AlignItems="Center">
+                            <Button
+                                Text="{Binding ActionText}"
+                                IsVisible="{Binding ShowAction}"
+                                Style="{StaticResource TnButtonPrimary}"
+                                HeightRequest="44"
+                                Padding="18,0"
+                                Margin="0,4,8,0"
+                                Clicked="OnActionClicked" />
+                            <Button
+                                Text="Выбрать"
+                                IsVisible="{Binding ShowSelect}"
+                                Style="{StaticResource TnButtonAccent}"
+                                HeightRequest="44"
+                                Padding="18,0"
+                                Margin="0,4,8,0"
+                                Clicked="OnSelectClicked" />
+                            <Button
+                                Text="Удалить"
+                                IsVisible="{Binding ShowDelete}"
+                                Style="{StaticResource TnButtonSecondary}"
+                                HeightRequest="44"
+                                Padding="18,0"
+                                Margin="0,4,8,0"
+                                Clicked="OnDeleteClicked" />
+                        </FlexLayout>
+                    </VerticalStackLayout>
+                </Border>
+            </DataTemplate>
+        </CollectionView.ItemTemplate>
+        <CollectionView.Footer>
+            <BoxView HeightRequest="24" Color="Transparent" />
+        </CollectionView.Footer>
+    </CollectionView>
+</ContentPage>

@@ -1,4 +1,5 @@
 ﻿using AiNpu.Features.Chat;
+using AiNpu.Features.Models;
 using AiNpu.Features.Settings;
 using AiNpu.Services;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<ChatService>();
         builder.Services.AddSingleton<ChatPage>();
         builder.Services.AddTransient<SettingsPage>();
+        builder.Services.AddSingleton<ModelDownloads>();  // загрузки моделей переживают уход со страницы «Модели»
+        builder.Services.AddTransient<ModelsPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

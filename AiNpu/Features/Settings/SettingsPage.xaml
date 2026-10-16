@@ -95,20 +95,12 @@
             <Border Style="{StaticResource TnCard}">
                 <VerticalStackLayout Spacing="10">
                     <Label Text="Модель" Style="{StaticResource TnEyebrow}" />
-                    <Picker
-                        x:Name="ModelPicker"
-                        AutomationId="ModelPicker"
-                        Title="Модель"
-                        FontFamily="ManropeBold"
-                        TextColor="{DynamicResource TnTextPrimary}"
-                        SelectedIndexChanged="OnModelChanged" />
                     <Label x:Name="ModelInfo" Style="{StaticResource TnBody}" />
                     <Button
-                        x:Name="DeleteModelButton"
-                        AutomationId="DeleteModelButton"
-                        Text="Удалить модель с телефона"
-                        Style="{StaticResource TnButtonBusy}"
-                        Clicked="OnDeleteModelClicked" />
+                        AutomationId="ModelsButton"
+                        Text="Модели и загрузка"
+                        Style="{StaticResource TnButtonSecondary}"
+                        Clicked="OnModelsClicked" />
                 </VerticalStackLayout>
             </Border>
         </VerticalStackLayout>

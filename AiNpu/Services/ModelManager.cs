@@ -109,19 +109,22 @@ public sealed class ModelManager
             string part = path + ".part";
             if (File.Exists(path))
             {
-                File.Move(path, part, overwrite: true);
+                // Файл без отметки: прерванная проверка или файл прежней сборки модели (тот же размер, другой SHA256).
+                if (new FileInfo(path).Length == bytes && await HashAsync(path, cancellationToken) == sha256)
+                {
+                    await File.WriteAllTextAsync(marker, sha256, cancellationToken);
+                    done += bytes;
+                    progress?.Report((done, total));
+                    continue;
+                }
+
+                File.Delete(path);
             }
 
             long baseDone = done;
             await this.FetchAsync(fileName, part, bytes, have => progress?.Report((baseDone + have, total)), cancellationToken);
 
-            string actual;
-            await using (var stream = new FileStream(part, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20))
-            {
-                actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken));
-            }
-
-            if (actual != sha256)
+            if (await HashAsync(part, cancellationToken) != sha256)
             {
                 File.Delete(part);
                 throw new InvalidDataException($"{fileName}: SHA256 не совпадает (файл удалён, нажмите «Скачать» ещё раз)");
@@ -131,6 +134,101 @@ public sealed class ModelManager
             await File.WriteAllTextAsync(marker, sha256, cancellationToken);
             done += bytes;
             progress?.Report((done, total));
+        }
+
+        this.RemoveStaleFiles();
+    }
+
+    // metadata.json из бакета, если он отличается от скачанного (новая сборка модели).
+    public string UpdatePath => Path.Combine(this.Directory, "metadata.json.new");
+
+    public bool HasUpdate => File.Exists(this.UpdatePath);
+
+    // Сверяет metadata.json с бакетом; новый кладётся рядом (UpdatePath) до ApplyUpdate. Только для скачанной модели.
+    public async Task<bool> CheckUpdateAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(this.MetadataPath))
+        {
+            return false;
+        }
+
+        string tmp = this.UpdatePath + ".part";
+        File.Delete(tmp);
+        await this.FetchAsync("metadata.json", tmp, 0, null, cancellationToken);
+        string remote = await File.ReadAllTextAsync(tmp, cancellationToken);
+        using (JsonDocument.Parse(remote))
+        {
+            // защита от HTML-страницы ошибки с кодом 200
+        }
+
+        if (remote == await File.ReadAllTextAsync(this.MetadataPath, cancellationToken))
+        {
+            File.Delete(tmp);
+            File.Delete(this.UpdatePath);
+            return false;
+        }
+
+        File.Move(tmp, this.UpdatePath, overwrite: true);
+        return true;
+    }
+
+    // Новый metadata.json вместо текущего; дальше DownloadAsync докачает только изменившиеся файлы.
+    // Модель должна быть выгружена из NPU: эмбеддинги отображены в память из файлов.
+    public void ApplyUpdate()
+    {
+        if (!this.HasUpdate)
+        {
+            return;
+        }
+
+        foreach (string part in System.IO.Directory.EnumerateFiles(this.Directory, "*.part"))
+        {
+            File.Delete(part);  // недокачанные куски прежней сборки к новой не подходят
+        }
+
+        File.Move(this.UpdatePath, this.MetadataPath, overwrite: true);
+    }
+
+    // Удаляет файлы и отметки, которых нет в текущем metadata.json (остатки прежней сборки).
+    private void RemoveStaleFiles()
+    {
+        var keep = new HashSet<string>(StringComparer.Ordinal) { "metadata.json", Path.GetFileName(this.UpdatePath) };
+        foreach (var (fileName, _, sha256) in this.Files())
+        {
+            keep.Add(fileName);
+            keep.Add(VerifiedMarker(fileName, sha256));
+        }
+
+        foreach (string path in System.IO.Directory.EnumerateFiles(this.Directory))
+        {
+            if (!keep.Contains(Path.GetFileName(path)))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    private static async Task<string> HashAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20);
+        return Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken));
+    }
+
+    // Каталоги моделей, которых больше нет в ModelCatalog (прежние версии приложения), — место на телефоне.
+    public static void RemoveUnknownModels(string? root = null)
+    {
+        root ??= Path.Combine(FileSystem.AppDataDirectory, "models");
+        if (!System.IO.Directory.Exists(root))
+        {
+            return;
+        }
+
+        foreach (string dir in System.IO.Directory.EnumerateDirectories(root))
+        {
+            if (ModelCatalog.Models.All(m => m.Id != Path.GetFileName(dir)))
+            {
+                System.IO.Directory.Delete(dir, recursive: true);
+            }
         }
     }
 

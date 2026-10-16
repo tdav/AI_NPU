@@ -1,25 +1,29 @@
 using System.Collections.ObjectModel;
+using AiNpu.Features.Models;
 using AiNpu.Features.Settings;
 using AiNpu.Services;
 
 namespace AiNpu.Features.Chat;
 
-// Чат с выбранной моделью (ModelCatalog) на NPU. До чата — подготовка: проверка SoC (SM8650), скачивание модели (с докачкой),
-// загрузка в NPU (≈1 с). Ответ приходит потоком; «Стоп» обрывает генерацию на текущем токене.
+// Чат с выбранной моделью (ModelCatalog) на NPU. До чата — подготовка: проверка SoC (SM8650), модель скачана
+// (иначе — экран «Модели», он же по нажатию на название в шапке), загрузка в NPU (≈1–2 с). Ответ приходит потоком; «Стоп» обрывает генерацию на текущем токене.
 public partial class ChatPage : ContentPage
 {
     private readonly ChatService chatService;
     private readonly IServiceProvider services;
     private CancellationTokenSource? operation;
+    private readonly ModelDownloads downloads;
     private bool generating;
-    private bool downloading;
+    private bool loading;
 
-    public ChatPage(ChatService chatService, IServiceProvider services)
+    public ChatPage(ChatService chatService, ModelDownloads downloads, IServiceProvider services)
     {
         this.chatService = chatService;
+        this.downloads = downloads;
         this.services = services;
         this.InitializeComponent();
         this.BindingContext = this;
+        this.downloads.Changed += this.OnDownloadChanged;
     }
 
     public ObservableCollection<ChatMessage> Messages { get; } = [];
@@ -29,13 +33,13 @@ public partial class ChatPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        if (this.downloading || this.generating)
+        if (this.loading || this.generating)
         {
             return;
         }
 
         ModelInfo model = ModelCatalog.Selected;
-        this.TitleLabel.Text = model.Title + " · NPU";
+        this.TitleLabel.Text = model.Title + " ▾";
         if (this.chatService.LoadedModelId is not null && this.chatService.LoadedModelId != model.Id)
         {
             this.Messages.Clear();  // выбрана другая модель — прежний диалог к ней не относится
@@ -52,15 +56,29 @@ public partial class ChatPage : ContentPage
         }
 
         ModelManager manager = SelectedModel;
+        ModelDownloads.Job? job = this.downloads.Get(model.Id);
+        if (job is not null)
+        {
+            this.ShowSetup(
+                "Скачивание " + model.Title,
+                "Модель скачивается в фоне; чат откроется, когда загрузка закончится. Пауза и другие модели — в разделе «Модели».",
+                "Модели");
+            this.DownloadProgress.IsVisible = this.DownloadLabel.IsVisible = true;
+            this.DownloadProgress.Progress = job.Total > 0 ? (double)job.Done / job.Total : 0;
+            this.DownloadLabel.Text = job.Total > 0
+                ? $"{FormatGb(job.Done)} из {FormatGb(job.Total)}" + (job.Speed > 0 ? $" · {job.Speed / (1 << 20):0.0} МБ/с" : string.Empty)
+                : "Подключение…";
+            this.StatusLabel.Text = "скачивание модели";
+            return;
+        }
+
         if (!manager.IsReady())
         {
-            long have = manager.DownloadedBytes();
-            long total = manager.TotalBytes;
-            string size = total > 0 ? FormatGb(total) : model.Description;
             this.ShowSetup(
-                "Скачать " + model.Title,
-                $"{model.Title} (4 бита) для NPU, {size}, из HuggingFace. Скачивается один раз, дальше всё работает без интернета. Нужен Wi-Fi и запас свободного места. Другую модель можно выбрать в «Настройках».",
-                have > 0 && total > 0 ? $"Продолжить ({FormatGb(have)} из {FormatGb(total)})" : "Скачать");
+                model.Title + " не скачана",
+                "Языковые модели для NPU скачиваются из HuggingFace один раз (1,8–4,7 ГБ), дальше всё работает без интернета. "
+                    + "В разделе «Модели» — список, размеры, загрузка и выбор модели для чата.",
+                "Модели");
             this.StatusLabel.Text = "модель не скачана";
             return;
         }
@@ -76,6 +94,7 @@ public partial class ChatPage : ContentPage
 
     private async Task LoadModelAsync()
     {
+        this.loading = true;
         this.ShowSetup("Загрузка в NPU", "Модель загружается в нейропроцессор…", null);
         this.SetupSpinner.IsVisible = this.SetupSpinner.IsRunning = true;
         this.StatusLabel.Text = "загрузка…";
@@ -91,62 +110,41 @@ public partial class ChatPage : ContentPage
         }
         finally
         {
+            this.loading = false;
             this.SetupSpinner.IsVisible = this.SetupSpinner.IsRunning = false;
         }
     }
 
     private async void OnSetupClicked(object? sender, EventArgs e)
     {
-        if (this.downloading)
-        {
-            this.operation?.Cancel();
-            return;
-        }
-
-        ModelManager manager = SelectedModel;
-        if (manager.IsReady())
+        if (SelectedModel.IsReady() && NpuPlatform.IsSupported)
         {
             await this.LoadModelAsync();
             return;
         }
 
-        this.downloading = true;
-        this.operation = new CancellationTokenSource();
-        this.SetupButton.Text = "Пауза";
-        this.DownloadProgress.IsVisible = this.DownloadLabel.IsVisible = true;
-        this.DownloadLabel.Text = "Подключение…";
-        this.SetupText.Text = "Скачивание… Не закрывайте приложение; при обрыве загрузка продолжится с того же места.";
-        DeviceDisplay.Current.KeepScreenOn = true;
-        var started = DateTime.UtcNow;
-        long startBytes = manager.DownloadedBytes();
-        var progress = new Progress<(long Done, long Total)>(p =>
+        await this.OpenModelsAsync();
+    }
+
+    private async void OnTitleTapped(object? sender, TappedEventArgs e)
+    {
+        if (!this.generating)
         {
-            this.DownloadProgress.Progress = (double)p.Done / p.Total;
-            double seconds = (DateTime.UtcNow - started).TotalSeconds;
-            double speed = seconds > 1 ? (p.Done - startBytes) / seconds : 0;
-            this.DownloadLabel.Text = $"{FormatGb(p.Done)} из {FormatGb(p.Total)}" + (speed > 0 ? $" · {speed / (1 << 20):0.0} МБ/с" : string.Empty);
-        });
-        try
-        {
-            await manager.DownloadAsync(progress, this.operation.Token);
-            this.downloading = false;
-            await this.LoadModelAsync();
+            await this.OpenModelsAsync();
         }
-        catch (OperationCanceledException)
+    }
+
+    private Task OpenModelsAsync() => this.Navigation.PushAsync(this.services.GetRequiredService<ModelsPage>());
+
+    // Пока чат ждёт выбранную модель, прогресс её фоновой загрузки виден и здесь; по окончании — загрузка в NPU.
+    private void OnDownloadChanged(string modelId)
+    {
+        if (modelId != ModelCatalog.Selected.Id || !this.SetupView.IsVisible || this.Navigation.NavigationStack[^1] != this)
         {
-            this.downloading = false;
-            this.OnAppearing();
+            return;
         }
-        catch (Exception ex)
-        {
-            this.downloading = false;
-            this.ShowSetup("Ошибка загрузки", ex.Message, "Повторить");
-        }
-        finally
-        {
-            DeviceDisplay.Current.KeepScreenOn = false;
-            this.DownloadProgress.IsVisible = this.DownloadLabel.IsVisible = this.downloading;
-        }
+
+        this.OnAppearing();
     }
 
     private async void OnSendClicked(object? sender, EventArgs e)
@@ -239,6 +237,7 @@ public partial class ChatPage : ContentPage
         this.MessagesView.IsVisible = this.InputBar.IsVisible = this.NewChatButton.IsVisible = false;
         this.SetupTitle.Text = title;
         this.SetupText.Text = text;
+        this.DownloadProgress.IsVisible = this.DownloadLabel.IsVisible = false;
         this.SetupButton.IsVisible = button is not null;
         this.SetupButton.Text = button ?? string.Empty;
     }

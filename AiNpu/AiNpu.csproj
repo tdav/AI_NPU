@@ -16,8 +16,8 @@
 
 		<ApplicationTitle>AI NPU</ApplicationTitle>
 		<ApplicationId>com.tdavron.ainpu</ApplicationId>
-		<ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
-		<ApplicationVersion>1</ApplicationVersion>
+		<ApplicationDisplayVersion>0.2.0</ApplicationDisplayVersion>
+		<ApplicationVersion>2</ApplicationVersion>
 		<Version>$(ApplicationDisplayVersion)</Version>
 
 		<!-- minSdk 31: Build.SocModel (проверка SM8650) есть с Android 12 -->

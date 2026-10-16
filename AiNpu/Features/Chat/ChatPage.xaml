@@ -18,7 +18,10 @@
             Padding="20,14,12,14"
             ColumnDefinitions="*,Auto,Auto"
             ColumnSpacing="4">
-            <VerticalStackLayout Spacing="2" VerticalOptions="Center">
+            <VerticalStackLayout Spacing="2" VerticalOptions="Center" AutomationId="ModelTitle">
+                <VerticalStackLayout.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnTitleTapped" />
+                </VerticalStackLayout.GestureRecognizers>
                 <Label
                     x:Name="TitleLabel"
                     Text="NPU"
